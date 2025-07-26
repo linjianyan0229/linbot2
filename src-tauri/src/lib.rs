@@ -793,6 +793,12 @@ async fn get_group_avatar(group_id: i64) -> Result<String, String> {
     Ok(format!("https://p.qlogo.cn/gh/{}/{}/640/", group_id, group_id))
 }
 
+/// 获取应用版本
+#[tauri::command]
+async fn get_app_version() -> Result<String, String> {
+    Ok(env!("CARGO_PKG_VERSION").to_string())
+}
+
 /// 服务器状态信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerStatusInfo {
@@ -868,7 +874,8 @@ pub fn run() {
             send_private_message,
             send_group_message,
             get_user_avatar,
-            get_group_avatar
+            get_group_avatar,
+            get_app_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

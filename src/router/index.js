@@ -4,7 +4,12 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 const routes = [
   {
     path: '/',
-    redirect: '/monitor'
+    redirect: '/startup'
+  },
+  {
+    path: '/startup',
+    name: 'Startup',
+    component: () => import('@/views/Startup.vue')
   },
   {
     path: '/monitor',
