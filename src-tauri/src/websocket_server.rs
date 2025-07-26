@@ -1,4 +1,4 @@
-use crate::onebot::{OneBotEvent, OneBotConfig, OneBotApiResponse, ConnectionStatus};
+use crate::onebot::{OneBotEvent, ConnectionStatus, OneBotConfig, OneBotApiResponse, format_event_log};
 use futures_util::{SinkExt, StreamExt};
 use serde_json;
 use std::collections::HashMap;
@@ -162,22 +162,27 @@ impl OneBotServer {
                 while let Some(msg) = ws_receiver.next().await {
                     match msg {
                         Ok(Message::Text(text)) => {
-                                                         // 验证访问令牌（如果配置了）
-                             if let Some(ref _token) = access_token {
-                                 // 这里可以添加更复杂的验证逻辑
-                                 // 简单示例：检查消息中是否包含正确的token
-                             }
+                            // 验证访问令牌（如果配置了）
+                            if let Some(ref _token) = access_token {
+                                // 这里可以添加更复杂的验证逻辑
+                                // 简单示例：检查消息中是否包含正确的token
+                            }
                             
                             // 解析 OneBot 事件
-                            if let Ok(event) = serde_json::from_str::<OneBotEvent>(&text) {
-                                println!("收到 OneBot 事件: {:?}", event);
-                                
-                                // 调用事件回调
-                                if let Some(callback) = *event_callback.lock().await {
-                                    callback(event);
+                            match serde_json::from_str::<OneBotEvent>(&text) {
+                                Ok(event) => {
+                                    // 使用格式化函数显示友好的日志信息
+                                    println!("{}", format_event_log(&event));
+                                    
+                                    // 调用事件回调
+                                    if let Some(callback) = *event_callback.lock().await {
+                                        callback(event);
+                                    }
                                 }
-                            } else {
-                                println!("无法解析的消息: {}", text);
+                                Err(e) => {
+                                    println!("[ERROR] 无法解析OneBot消息: {}", e);
+                                    println!("[DEBUG] 原始消息: {}", text);
+                                }
                             }
                         }
                         Ok(Message::Close(_)) => {

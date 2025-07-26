@@ -2,23 +2,39 @@ mod onebot;
 mod websocket_server;
 mod config;
 
+use std::sync::Arc;
+use std::collections::VecDeque;
+use tokio::sync::{Mutex, mpsc};
+use tauri::Emitter;
+
+use config::{ConfigManager, ServerConfig};
 use onebot::{OneBotConfig, OneBotEvent, ConnectionStatus};
 use websocket_server::OneBotServer;
-use config::{ConfigManager, ServerConfig};
-use std::sync::Arc;
-use tokio::sync::Mutex;
+
+use crate::onebot::format_event_log;
+use crate::config::{AppSettings, LogEntry, LogLevel};
+use once_cell::sync::Lazy;
 
 // 全局服务器实例
-static SERVER: once_cell::sync::Lazy<Arc<Mutex<Option<Arc<OneBotServer>>>>> = 
+static SERVER: once_cell::sync::Lazy<Arc<Mutex<Option<Arc<OneBotServer>>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
 
-// 全局配置管理器
-static CONFIG_MANAGER: once_cell::sync::Lazy<Arc<Mutex<Option<ConfigManager>>>> = 
+// 配置管理器
+static CONFIG_MANAGER: once_cell::sync::Lazy<Arc<Mutex<Option<ConfigManager>>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
 
-// 全局服务器运行状态
-static SERVER_STATUS: once_cell::sync::Lazy<Arc<Mutex<(bool, String, u32)>>> = 
+// 服务器运行状态 (is_running, status_string, connection_count)
+static SERVER_STATUS: once_cell::sync::Lazy<Arc<Mutex<(bool, String, u32)>>> =
     once_cell::sync::Lazy::new(|| Arc::new(Mutex::new((false, "disconnected".to_string(), 0))));
+
+// 日志管理相关的全局状态
+static LOG_BUFFER: Lazy<Arc<Mutex<VecDeque<LogEntry>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(VecDeque::new()))
+});
+
+static LOG_SUBSCRIBERS: Lazy<Arc<Mutex<Vec<mpsc::UnboundedSender<LogEntry>>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(Vec::new()))
+});
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -47,10 +63,10 @@ async fn start_onebot_server(
     };
 
     let server = OneBotServer::new(config);
-    
+
     // 设置事件回调
     server.set_event_callback(handle_onebot_event).await;
-    
+
     // 将服务器实例包装在 Arc 中并保存到全局变量
     let server_arc = Arc::new(server);
     {
@@ -94,13 +110,13 @@ async fn get_onebot_status() -> Result<String, String> {
     if let Some(ref server) = *server_guard {
         let status = server.get_status().await;
         let count = server.get_connection_count().await;
-        
+
         let status_str = match status {
             ConnectionStatus::Connected => "已连接",
             ConnectionStatus::Connecting => "连接中",
             ConnectionStatus::Disconnected => "未连接",
         };
-        
+
         Ok(format!("状态: {} | 连接数: {}", status_str, count))
     } else {
         Ok("服务器未启动".to_string())
@@ -112,7 +128,7 @@ async fn get_onebot_status() -> Result<String, String> {
 async fn get_server_runtime_status() -> Result<(bool, String, u32), String> {
     let status = SERVER_STATUS.lock().await;
     let (is_running, status_str, connection_count) = status.clone();
-    
+
     Ok((is_running, status_str, connection_count))
 }
 
@@ -150,14 +166,14 @@ async fn stop_onebot_server() -> Result<String, String> {
 async fn init_config_manager(app_handle: tauri::AppHandle) -> Result<String, String> {
     let manager = ConfigManager::new(&app_handle)
         .map_err(|e| format!("初始化配置管理器失败: {}", e))?;
-    
+
     let config_path = manager.get_config_path().display().to_string();
-    
+
     {
         let mut config_guard = CONFIG_MANAGER.lock().await;
         *config_guard = Some(manager);
     }
-    
+
     println!("配置管理器已初始化，配置文件路径: {}", config_path);
     Ok(config_path)
 }
@@ -183,7 +199,7 @@ async fn add_server_config(
 ) -> Result<ServerConfig, String> {
     let server_id = uuid::Uuid::new_v4().to_string();
     let server = ServerConfig::new(server_id, name, host, port, access_token);
-    
+
     {
         let mut config_guard = CONFIG_MANAGER.lock().await;
         if let Some(ref mut manager) = *config_guard {
@@ -193,7 +209,7 @@ async fn add_server_config(
             return Err("配置管理器未初始化".to_string());
         }
     }
-    
+
     println!("已添加服务器配置: {} ({}:{})", server.name, server.host, server.port);
     Ok(server)
 }
@@ -250,52 +266,210 @@ async fn get_config_path() -> Result<String, String> {
     }
 }
 
-/// OneBot 事件处理函数
-fn handle_onebot_event(event: OneBotEvent) {
-    match event {
-        OneBotEvent::Message { 
-            message, 
-            user_id, 
-            message_type,
-            group_id,
-            .. 
-        } => {
-            if message_type == "private" {
-                println!("收到私聊消息 [{}]: {}", user_id, message);
-            } else if message_type == "group" {
-                if let Some(gid) = group_id {
-                    println!("收到群聊消息 [群:{}|用户:{}]: {}", gid, user_id, message);
-                }
+/// 获取应用设置
+#[tauri::command]
+async fn get_app_settings() -> Result<AppSettings, String> {
+    let config_guard = CONFIG_MANAGER.lock().await;
+    if let Some(ref manager) = *config_guard {
+        Ok(manager.get_settings().clone())
+    } else {
+        Err("配置管理器未初始化".to_string())
+    }
+}
+
+/// 更新应用设置
+#[tauri::command]
+async fn update_app_settings(settings: AppSettings) -> Result<(), String> {
+    let mut config_guard = CONFIG_MANAGER.lock().await;
+    if let Some(ref mut manager) = *config_guard {
+        manager.update_settings(settings).map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("配置管理器未初始化".to_string())
+    }
+}
+
+/// 获取日志历史
+#[tauri::command]
+async fn get_log_history() -> Result<Vec<LogEntry>, String> {
+    let buffer = LOG_BUFFER.lock().await;
+    Ok(buffer.iter().cloned().collect())
+}
+
+/// 清空日志历史
+#[tauri::command]
+async fn clear_log_history() -> Result<(), String> {
+    let mut buffer = LOG_BUFFER.lock().await;
+    buffer.clear();
+    Ok(())
+}
+
+/// 订阅实时日志
+#[tauri::command]
+async fn subscribe_logs(window: tauri::Window) -> Result<(), String> {
+    let (tx, mut rx) = mpsc::unbounded_channel::<LogEntry>();
+    
+    // 添加到订阅者列表
+    {
+        let mut subscribers = LOG_SUBSCRIBERS.lock().await;
+        subscribers.push(tx);
+    }
+    
+    // 启动发送任务
+    tokio::spawn(async move {
+        while let Some(log_entry) = rx.recv().await {
+            if let Err(e) = window.emit("log-entry", &log_entry) {
+                eprintln!("发送日志事件失败: {}", e);
+                break;
             }
-            
-            // 接收到消息说明有连接，更新状态为已连接
-            tokio::spawn(async {
-                let mut status = SERVER_STATUS.lock().await;
-                if status.0 { // 如果服务器标记为运行中
-                    *status = (true, "connected".to_string(), 1);
-                }
-            });
         }
-        OneBotEvent::Notice { notice_type, user_id, .. } => {
-            println!("收到通知 [{}]: 用户 {}", notice_type, user_id);
+    });
+    
+    Ok(())
+}
+
+/// 添加日志条目到缓冲区和推送给订阅者
+async fn add_log_entry(entry: LogEntry) {
+    // 添加到缓冲区
+    {
+        let mut buffer = LOG_BUFFER.lock().await;
+        
+        // 检查是否需要移除旧日志
+        let config_guard = CONFIG_MANAGER.lock().await;
+        let max_entries = if let Some(ref manager) = *config_guard {
+            manager.get_settings().max_log_entries as usize
+        } else {
+            1000
+        };
+        
+        while buffer.len() >= max_entries {
+            buffer.pop_front();
         }
-        OneBotEvent::Request { request_type, user_id, comment, .. } => {
-            println!("收到请求 [{}]: 用户 {} - {}", request_type, user_id, comment);
-        }
-        OneBotEvent::MetaEvent { meta_event_type, .. } => {
-            println!("收到元事件: {}", meta_event_type);
-            
-            // 收到心跳或连接事件，更新连接状态
-            if meta_event_type == "lifecycle" || meta_event_type == "heartbeat" {
-                tokio::spawn(async {
-                    let mut status = SERVER_STATUS.lock().await;
-                    if status.0 { // 如果服务器标记为运行中
-                        *status = (true, "connected".to_string(), 1);
-                    }
-                });
+        
+        buffer.push_back(entry.clone());
+    }
+    
+    // 推送给所有订阅者
+    {
+        let mut subscribers = LOG_SUBSCRIBERS.lock().await;
+        
+        // 移除已关闭的订阅者
+        subscribers.retain(|tx| !tx.is_closed());
+        
+        // 发送给所有活跃的订阅者
+        for tx in subscribers.iter() {
+            if let Err(e) = tx.send(entry.clone()) {
+                eprintln!("发送日志给订阅者失败: {}", e);
             }
         }
     }
+}
+
+/// OneBot 事件处理函数
+fn handle_onebot_event(event: OneBotEvent) {
+    // 先处理状态更新逻辑（避免move问题）
+    let update_connection_status = match &event {
+        OneBotEvent::Message { .. } => true,
+        OneBotEvent::MetaEvent { meta_event_type, .. } => {
+            if meta_event_type == "lifecycle" {
+                println!("收到生命周期事件: {}", meta_event_type);
+            }
+            true
+        }
+        _ => false,
+    };
+
+    if update_connection_status {
+        tokio::spawn(async {
+            let mut status = SERVER_STATUS.lock().await;
+            if status.0 { // 如果服务器标记为运行中
+                *status = (true, "connected".to_string(), 1);
+            }
+        });
+    }
+
+    // 创建日志条目
+    let log_entry = match &event {
+        OneBotEvent::Message { 
+            user_id, 
+            message_type,
+            group_id,
+            sender,
+            .. 
+        } => {
+            let sender_name = if let Some(card) = &sender.card {
+                if card.is_empty() { &sender.nickname } else { card }
+            } else {
+                &sender.nickname
+            };
+            
+            let log_content = format_event_log(&event);
+            
+            LogEntry::new(
+                LogLevel::Info,
+                "message".to_string(),
+                log_content,
+                Some(serde_json::to_value(&event).unwrap_or_default()),
+            ).with_message_info(
+                Some(message_type.clone()),
+                *group_id,
+                Some(*user_id),
+                Some(sender_name.to_string()),
+            )
+        }
+        OneBotEvent::Notice { user_id, .. } => {
+            let log_content = format_event_log(&event);
+            LogEntry::new(
+                LogLevel::Info,
+                "notice".to_string(),
+                log_content,
+                Some(serde_json::to_value(&event).unwrap_or_default()),
+            ).with_message_info(None, None, Some(*user_id), None)
+        }
+        OneBotEvent::Request { user_id, .. } => {
+            let log_content = format_event_log(&event);
+            LogEntry::new(
+                LogLevel::Info,
+                "request".to_string(),
+                log_content,
+                Some(serde_json::to_value(&event).unwrap_or_default()),
+            ).with_message_info(None, None, Some(*user_id), None)
+        }
+        OneBotEvent::MetaEvent { meta_event_type, .. } => {
+            let log_content = format_event_log(&event);
+            let level = match meta_event_type.as_str() {
+                "heartbeat" => LogLevel::Debug,
+                _ => LogLevel::Info,
+            };
+            LogEntry::new(
+                level,
+                meta_event_type.clone(),
+                log_content,
+                Some(serde_json::to_value(&event).unwrap_or_default()),
+            )
+        }
+    };
+
+    // 异步添加日志条目
+    let should_show_heartbeat = matches!(&event, OneBotEvent::MetaEvent { meta_event_type, .. } if meta_event_type == "heartbeat");
+    
+    tokio::spawn(async move {
+        // 检查是否应该显示心跳包日志
+        let should_show = if should_show_heartbeat {
+            let config_guard = CONFIG_MANAGER.lock().await;
+            if let Some(ref manager) = *config_guard {
+                manager.get_settings().show_heartbeat_logs
+            } else {
+                false
+            }
+        } else {
+            true
+        };
+
+        if should_show {
+            add_log_entry(log_entry).await;
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -310,7 +484,7 @@ pub fn run() {
                     Ok(manager) => {
                         let config_path = manager.get_config_path().display().to_string();
                         println!("配置管理器已初始化，配置文件路径: {}", config_path);
-                        
+
                         // 保存到全局变量
                         let mut config_guard = CONFIG_MANAGER.lock().await;
                         *config_guard = Some(manager);
@@ -334,7 +508,12 @@ pub fn run() {
             update_server_config,
             remove_server_config,
             set_server_enabled,
-            get_config_path
+            get_config_path,
+            get_app_settings,
+            update_app_settings,
+            get_log_history,
+            clear_log_history,
+            subscribe_logs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
