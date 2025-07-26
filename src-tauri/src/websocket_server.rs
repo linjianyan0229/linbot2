@@ -1,4 +1,4 @@
-use crate::onebot::{OneBotEvent, ConnectionStatus, OneBotConfig, OneBotApiResponse, format_event_log};
+use crate::onebot::{OneBotEvent, ConnectionStatus, OneBotConfig, OneBotApiResponse, OneBotApiRequest, format_event_log};
 use futures_util::{SinkExt, StreamExt};
 use serde_json;
 use std::collections::HashMap;
@@ -16,6 +16,16 @@ pub struct Connection {
     pub id: String,
     pub addr: SocketAddr,
     pub sender: mpsc::UnboundedSender<Message>,
+}
+
+/// 连接信息（不包含 sender，用于返回）
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct ConnectionInfo {
+    #[allow(dead_code)]
+    pub id: String,
+    #[allow(dead_code)]
+    pub addr: SocketAddr,
 }
 
 /// OneBot 反向 WebSocket 服务器
@@ -117,6 +127,30 @@ impl OneBotServer {
         Ok(())
     }
 
+    /// 获取当前连接列表
+    #[allow(dead_code)]
+    pub async fn get_connections(&self) -> Vec<ConnectionInfo> {
+        let connections = self.connections.read().await;
+        connections.values().map(|conn| ConnectionInfo {
+            id: conn.id.clone(),
+            addr: conn.addr,
+        }).collect()
+    }
+
+    /// 发送 API 请求到所有连接的客户端
+    pub async fn send_api_request(&self, request: OneBotApiRequest) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let connections = self.connections.read().await;
+        let request_json = serde_json::to_string(&request)?;
+
+        for connection in connections.values() {
+            if let Err(e) = connection.sender.send(tokio_tungstenite::tungstenite::Message::Text(request_json.clone())) {
+                eprintln!("发送 API 请求失败: {}", e);
+            }
+        }
+
+        Ok(())
+    }
+
     /// 处理 WebSocket 连接
     async fn handle_connection(
         stream: TcpStream,
@@ -168,20 +202,31 @@ impl OneBotServer {
                                 // 简单示例：检查消息中是否包含正确的token
                             }
                             
-                            // 解析 OneBot 事件
-                            match serde_json::from_str::<OneBotEvent>(&text) {
-                                Ok(event) => {
-                                    // 使用格式化函数显示友好的日志信息
-                                    println!("{}", format_event_log(&event));
-                                    
-                                    // 调用事件回调
-                                    if let Some(callback) = *event_callback.lock().await {
-                                        callback(event);
+                            // 首先尝试解析为 API 响应
+                            if let Ok(api_response) = serde_json::from_str::<OneBotApiResponse>(&text) {
+                                // 这是 API 响应，处理它
+                                if let Some(echo) = &api_response.echo {
+                                    // 通知等待的 API 调用
+                                    if let Some(sender) = crate::API_RESPONSE_MAP.lock().await.remove(echo) {
+                                        let _ = sender.send(api_response);
                                     }
                                 }
-                                Err(e) => {
-                                    println!("[ERROR] 无法解析OneBot消息: {}", e);
-                                    println!("[DEBUG] 原始消息: {}", text);
+                            } else {
+                                // 尝试解析为 OneBot 事件
+                                match serde_json::from_str::<OneBotEvent>(&text) {
+                                    Ok(event) => {
+                                        // 使用格式化函数显示友好的日志信息
+                                        println!("{}", format_event_log(&event));
+
+                                        // 调用事件回调
+                                        if let Some(callback) = *event_callback.lock().await {
+                                            callback(event);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        println!("[ERROR] 无法解析OneBot消息: {}", e);
+                                        println!("[DEBUG] 原始消息: {}", text);
+                                    }
                                 }
                             }
                         }

@@ -128,6 +128,41 @@ pub struct OneBotApiResponse {
     pub wording: Option<String>,
 }
 
+/// 好友信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Friend {
+    pub user_id: i64,
+    pub nickname: String,
+    pub remark: String,
+}
+
+/// 群聊信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Group {
+    pub group_id: i64,
+    pub group_name: String,
+    pub member_count: i32,
+    pub max_member_count: i32,
+}
+
+/// 机器人账号信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BotAccount {
+    pub self_id: i64,
+    pub nickname: String,
+    pub status: String,
+    pub friends: Vec<Friend>,
+    pub groups: Vec<Group>,
+    pub last_updated: i64,
+}
+
+/// 机器人登录信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BotLoginInfo {
+    pub user_id: i64,
+    pub nickname: String,
+}
+
 /// WebSocket 连接状态
 #[derive(Debug, Clone)]
 pub enum ConnectionStatus {

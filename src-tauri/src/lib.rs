@@ -3,12 +3,13 @@ mod websocket_server;
 mod config;
 
 use std::sync::Arc;
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 use tokio::sync::{Mutex, mpsc};
 use tauri::Emitter;
+use serde::{Serialize, Deserialize};
 
 use config::{ConfigManager, ServerConfig};
-use onebot::{OneBotConfig, OneBotEvent, ConnectionStatus};
+use onebot::{OneBotConfig, OneBotEvent, ConnectionStatus, BotAccount, Friend, Group, OneBotApiRequest, OneBotApiResponse, BotLoginInfo};
 use websocket_server::OneBotServer;
 
 use crate::onebot::format_event_log;
@@ -34,6 +35,19 @@ static LOG_BUFFER: Lazy<Arc<Mutex<VecDeque<LogEntry>>>> = Lazy::new(|| {
 
 static LOG_SUBSCRIBERS: Lazy<Arc<Mutex<Vec<mpsc::UnboundedSender<LogEntry>>>>> = Lazy::new(|| {
     Arc::new(Mutex::new(Vec::new()))
+});
+
+// 机器人账号缓存
+static BOT_ACCOUNTS: Lazy<Arc<Mutex<HashMap<i64, BotAccount>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
+});
+
+// API 调用缓存时间（秒）
+const CACHE_DURATION: i64 = 300; // 5分钟
+
+// API 响应等待映射
+static API_RESPONSE_MAP: Lazy<Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<OneBotApiResponse>>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(HashMap::new()))
 });
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -367,6 +381,48 @@ async fn add_log_entry(entry: LogEntry) {
 
 /// OneBot 事件处理函数
 fn handle_onebot_event(event: OneBotEvent) {
+    // 提取 self_id 用于跟踪机器人账号
+    let self_id = match &event {
+        OneBotEvent::Message { self_id, .. } => Some(*self_id),
+        OneBotEvent::Notice { self_id, .. } => Some(*self_id),
+        OneBotEvent::Request { self_id, .. } => Some(*self_id),
+        OneBotEvent::MetaEvent { self_id, .. } => Some(*self_id),
+    };
+
+    // 更新机器人账号信息
+    if let Some(bot_id) = self_id {
+        tokio::spawn(async move {
+            let mut accounts = BOT_ACCOUNTS.lock().await;
+            let _current_time = chrono::Utc::now().timestamp();
+
+            // 确保机器人账号存在于缓存中
+            let account = accounts.entry(bot_id).or_insert_with(|| BotAccount {
+                self_id: bot_id,
+                nickname: format!("Bot {}", bot_id),
+                status: "online".to_string(),
+                friends: Vec::new(),
+                groups: Vec::new(),
+                last_updated: 0,
+            });
+
+            // 更新状态为在线
+            account.status = "online".to_string();
+
+            // 如果昵称还是默认的，尝试获取真实昵称
+            if account.nickname.starts_with("Bot ") {
+                let bot_id_for_task = bot_id;
+                tokio::spawn(async move {
+                    if let Ok(login_info) = get_bot_login_info(bot_id_for_task).await {
+                        let mut accounts = BOT_ACCOUNTS.lock().await;
+                        if let Some(account) = accounts.get_mut(&bot_id_for_task) {
+                            account.nickname = login_info.nickname;
+                        }
+                    }
+                });
+            }
+        });
+    }
+
     // 先处理状态更新逻辑（避免move问题）
     let update_connection_status = match &event {
         OneBotEvent::Message { .. } => true,
@@ -472,6 +528,236 @@ fn handle_onebot_event(event: OneBotEvent) {
     });
 }
 
+/// 向 OneBot 客户端发送 API 请求
+#[allow(dead_code)]
+async fn send_onebot_api_request(
+    action: &str,
+    params: HashMap<String, serde_json::Value>,
+) -> Result<OneBotApiResponse, String> {
+    let server_guard = SERVER.lock().await;
+    if let Some(ref server) = *server_guard {
+        // 检查是否有连接
+        let connections = server.get_connections().await;
+        if connections.is_empty() {
+            return Err("没有活跃的 OneBot 连接".to_string());
+        }
+
+        // 生成唯一的 echo ID
+        let echo = uuid::Uuid::new_v4().to_string();
+
+        // 构建 API 请求
+        let request = OneBotApiRequest {
+            action: action.to_string(),
+            params,
+            echo: Some(echo.clone()),
+        };
+
+        // 创建响应通道
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        // 注册响应等待
+        {
+            let mut response_map = API_RESPONSE_MAP.lock().await;
+            response_map.insert(echo.clone(), tx);
+        }
+
+        // 发送请求
+        if let Err(e) = server.send_api_request(request).await {
+            // 清理响应等待
+            let mut response_map = API_RESPONSE_MAP.lock().await;
+            response_map.remove(&echo);
+            return Err(format!("发送 API 请求失败: {}", e));
+        }
+
+        // 等待响应（设置超时）
+        match tokio::time::timeout(tokio::time::Duration::from_secs(10), rx).await {
+            Ok(Ok(response)) => Ok(response),
+            Ok(Err(_)) => {
+                // 清理响应等待
+                let mut response_map = API_RESPONSE_MAP.lock().await;
+                response_map.remove(&echo);
+                Err("API 响应通道关闭".to_string())
+            }
+            Err(_) => {
+                // 超时，清理响应等待
+                let mut response_map = API_RESPONSE_MAP.lock().await;
+                response_map.remove(&echo);
+                Err("API 请求超时".to_string())
+            }
+        }
+    } else {
+        Err("服务器未启动".to_string())
+    }
+}
+
+/// 获取好友列表（带缓存）
+async fn get_friend_list_cached(self_id: i64) -> Result<Vec<Friend>, String> {
+    let mut accounts = BOT_ACCOUNTS.lock().await;
+    let current_time = chrono::Utc::now().timestamp();
+
+    // 检查缓存是否有效
+    if let Some(account) = accounts.get(&self_id) {
+        if current_time - account.last_updated < CACHE_DURATION {
+            return Ok(account.friends.clone());
+        }
+    }
+
+    // 调用真实的 OneBot API
+    let params = HashMap::new();
+    let response = send_onebot_api_request("get_friend_list", params).await?;
+
+    // 解析响应
+    if response.status == "ok" && response.retcode == 0 {
+        if let Some(data) = response.data {
+            let friends: Vec<Friend> = serde_json::from_value(data)
+                .map_err(|e| format!("解析好友列表失败: {}", e))?;
+
+            // 更新缓存
+            let account = accounts.entry(self_id).or_insert_with(|| BotAccount {
+                self_id,
+                nickname: format!("Bot {}", self_id),
+                status: "online".to_string(),
+                friends: Vec::new(),
+                groups: Vec::new(),
+                last_updated: current_time,
+            });
+            account.friends = friends.clone();
+            account.last_updated = current_time;
+
+            return Ok(friends);
+        }
+    }
+
+    Err(format!("API 调用失败: {} ({})",
+        response.message.unwrap_or_default(),
+        response.retcode))
+}
+
+/// 获取群聊列表（带缓存）
+async fn get_group_list_cached(self_id: i64) -> Result<Vec<Group>, String> {
+    let mut accounts = BOT_ACCOUNTS.lock().await;
+    let current_time = chrono::Utc::now().timestamp();
+
+    // 检查缓存是否有效
+    if let Some(account) = accounts.get(&self_id) {
+        if current_time - account.last_updated < CACHE_DURATION {
+            return Ok(account.groups.clone());
+        }
+    }
+
+    // 调用真实的 OneBot API
+    let params = HashMap::new();
+    let response = send_onebot_api_request("get_group_list", params).await?;
+
+    // 解析响应
+    if response.status == "ok" && response.retcode == 0 {
+        if let Some(data) = response.data {
+            let groups: Vec<Group> = serde_json::from_value(data)
+                .map_err(|e| format!("解析群聊列表失败: {}", e))?;
+
+            // 更新缓存
+            let account = accounts.entry(self_id).or_insert_with(|| BotAccount {
+                self_id,
+                nickname: format!("Bot {}", self_id),
+                status: "online".to_string(),
+                friends: Vec::new(),
+                groups: Vec::new(),
+                last_updated: current_time,
+            });
+            account.groups = groups.clone();
+            account.last_updated = current_time;
+
+            return Ok(groups);
+        }
+    }
+
+    Err(format!("API 调用失败: {} ({})",
+        response.message.unwrap_or_default(),
+        response.retcode))
+}
+
+/// 获取机器人登录信息
+async fn get_bot_login_info(_self_id: i64) -> Result<BotLoginInfo, String> {
+    let params = HashMap::new();
+    let response = send_onebot_api_request("get_login_info", params).await?;
+
+    if response.status == "ok" && response.retcode == 0 {
+        if let Some(data) = response.data {
+            let login_info: BotLoginInfo = serde_json::from_value(data)
+                .map_err(|e| format!("解析登录信息失败: {}", e))?;
+            return Ok(login_info);
+        }
+    }
+
+    Err(format!("获取登录信息失败: {} ({})",
+        response.message.unwrap_or_default(),
+        response.retcode))
+}
+
+/// 获取所有机器人账号
+#[tauri::command]
+async fn get_bot_accounts() -> Result<Vec<BotAccount>, String> {
+    let accounts = BOT_ACCOUNTS.lock().await;
+    Ok(accounts.values().cloned().collect())
+}
+
+/// 获取指定机器人的好友列表
+#[tauri::command]
+async fn get_friends(self_id: i64) -> Result<Vec<Friend>, String> {
+    get_friend_list_cached(self_id).await
+}
+
+/// 获取指定机器人的群聊列表
+#[tauri::command]
+async fn get_groups(self_id: i64) -> Result<Vec<Group>, String> {
+    get_group_list_cached(self_id).await
+}
+
+/// 刷新机器人数据（清除缓存）
+#[tauri::command]
+async fn refresh_bot_data(self_id: Option<i64>) -> Result<(), String> {
+    let mut accounts = BOT_ACCOUNTS.lock().await;
+
+    if let Some(id) = self_id {
+        // 刷新指定机器人的数据
+        if let Some(account) = accounts.get_mut(&id) {
+            account.last_updated = 0; // 强制过期缓存
+        }
+    } else {
+        // 刷新所有机器人的数据
+        for account in accounts.values_mut() {
+            account.last_updated = 0;
+        }
+    }
+
+    Ok(())
+}
+
+/// 服务器状态信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerStatusInfo {
+    pub is_running: bool,
+    pub status: String,
+    pub connection_count: u32,
+    pub active_bots: Vec<i64>,
+}
+
+/// 获取详细的服务器状态信息
+#[tauri::command]
+async fn get_server_status_info() -> Result<ServerStatusInfo, String> {
+    let status = SERVER_STATUS.lock().await;
+    let accounts = BOT_ACCOUNTS.lock().await;
+
+    let active_bots: Vec<i64> = accounts.keys().cloned().collect();
+
+    Ok(ServerStatusInfo {
+        is_running: status.0,
+        status: status.1.clone(),
+        connection_count: status.2,
+        active_bots,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -513,7 +799,12 @@ pub fn run() {
             update_app_settings,
             get_log_history,
             clear_log_history,
-            subscribe_logs
+            subscribe_logs,
+            get_bot_accounts,
+            get_friends,
+            get_groups,
+            refresh_bot_data,
+            get_server_status_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
