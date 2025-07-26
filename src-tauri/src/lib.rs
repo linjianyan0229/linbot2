@@ -735,6 +735,7 @@ async fn refresh_bot_data(self_id: Option<i64>) -> Result<(), String> {
 
 /// 发送私聊消息
 #[tauri::command]
+#[allow(non_snake_case)]
 async fn send_private_message(userId: i64, message: String) -> Result<SendMessageResponse, String> {
     let mut params = HashMap::new();
     params.insert("user_id".to_string(), serde_json::Value::Number(serde_json::Number::from(userId)));
@@ -757,6 +758,7 @@ async fn send_private_message(userId: i64, message: String) -> Result<SendMessag
 
 /// 发送群聊消息
 #[tauri::command]
+#[allow(non_snake_case)]
 async fn send_group_message(groupId: i64, message: String) -> Result<SendMessageResponse, String> {
     let mut params = HashMap::new();
     params.insert("group_id".to_string(), serde_json::Value::Number(serde_json::Number::from(groupId)));
