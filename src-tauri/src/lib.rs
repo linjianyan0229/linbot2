@@ -9,7 +9,7 @@ use tauri::Emitter;
 use serde::{Serialize, Deserialize};
 
 use config::{ConfigManager, ServerConfig};
-use onebot::{OneBotConfig, OneBotEvent, ConnectionStatus, BotAccount, Friend, Group, OneBotApiRequest, OneBotApiResponse, BotLoginInfo};
+use onebot::{OneBotConfig, OneBotEvent, ConnectionStatus, BotAccount, Friend, Group, OneBotApiRequest, OneBotApiResponse, BotLoginInfo, SendMessageResponse};
 use websocket_server::OneBotServer;
 
 use crate::onebot::format_event_log;
@@ -733,6 +733,64 @@ async fn refresh_bot_data(self_id: Option<i64>) -> Result<(), String> {
     Ok(())
 }
 
+/// 发送私聊消息
+#[tauri::command]
+async fn send_private_message(userId: i64, message: String) -> Result<SendMessageResponse, String> {
+    let mut params = HashMap::new();
+    params.insert("user_id".to_string(), serde_json::Value::Number(serde_json::Number::from(userId)));
+    params.insert("message".to_string(), serde_json::Value::String(message));
+
+    let response = send_onebot_api_request("send_private_msg", params).await?;
+
+    if response.status == "ok" && response.retcode == 0 {
+        if let Some(data) = response.data {
+            let send_response: SendMessageResponse = serde_json::from_value(data)
+                .map_err(|e| format!("解析发送响应失败: {}", e))?;
+            return Ok(send_response);
+        }
+    }
+
+    Err(format!("发送私聊消息失败: {} ({})",
+        response.message.unwrap_or_default(),
+        response.retcode))
+}
+
+/// 发送群聊消息
+#[tauri::command]
+async fn send_group_message(groupId: i64, message: String) -> Result<SendMessageResponse, String> {
+    let mut params = HashMap::new();
+    params.insert("group_id".to_string(), serde_json::Value::Number(serde_json::Number::from(groupId)));
+    params.insert("message".to_string(), serde_json::Value::String(message));
+
+    let response = send_onebot_api_request("send_group_msg", params).await?;
+
+    if response.status == "ok" && response.retcode == 0 {
+        if let Some(data) = response.data {
+            let send_response: SendMessageResponse = serde_json::from_value(data)
+                .map_err(|e| format!("解析发送响应失败: {}", e))?;
+            return Ok(send_response);
+        }
+    }
+
+    Err(format!("发送群聊消息失败: {} ({})",
+        response.message.unwrap_or_default(),
+        response.retcode))
+}
+
+/// 获取用户头像
+#[tauri::command]
+async fn get_user_avatar(user_id: i64) -> Result<String, String> {
+    // OneBot 标准中没有直接的头像API，通常使用QQ头像链接
+    Ok(format!("https://q1.qlogo.cn/g?b=qq&nk={}&s=640", user_id))
+}
+
+/// 获取群聊头像
+#[tauri::command]
+async fn get_group_avatar(group_id: i64) -> Result<String, String> {
+    // OneBot 标准中没有直接的群头像API，通常使用QQ群头像链接
+    Ok(format!("https://p.qlogo.cn/gh/{}/{}/640/", group_id, group_id))
+}
+
 /// 服务器状态信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerStatusInfo {
@@ -804,7 +862,11 @@ pub fn run() {
             get_friends,
             get_groups,
             refresh_bot_data,
-            get_server_status_info
+            get_server_status_info,
+            send_private_message,
+            send_group_message,
+            get_user_avatar,
+            get_group_avatar
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

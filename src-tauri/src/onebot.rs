@@ -163,6 +163,34 @@ pub struct BotLoginInfo {
     pub nickname: String,
 }
 
+/// 消息发送请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendMessageRequest {
+    pub message_type: String, // "private" 或 "group"
+    pub target_id: i64,       // user_id 或 group_id
+    pub message: String,      // 消息内容
+}
+
+/// 消息发送响应
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendMessageResponse {
+    pub message_id: i64,
+}
+
+/// 用户头像信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserAvatar {
+    pub user_id: i64,
+    pub avatar_url: String,
+}
+
+/// 群聊头像信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GroupAvatar {
+    pub group_id: i64,
+    pub avatar_url: String,
+}
+
 /// WebSocket 连接状态
 #[derive(Debug, Clone)]
 pub enum ConnectionStatus {

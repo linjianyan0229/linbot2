@@ -74,9 +74,12 @@
           class="group-item"
         >
           <div class="group-avatar">
-            <div class="avatar-placeholder">
-              {{ group.group_name.charAt(0) }}
-            </div>
+            <img
+              :src="getGroupAvatar(group.group_id)"
+              :alt="group.group_name"
+              class="avatar-image"
+              @error="handleAvatarError"
+            />
           </div>
           <div class="group-info">
             <div class="group-name">{{ group.group_name }}</div>
@@ -99,7 +102,7 @@
             </div>
           </div>
           <div class="group-actions">
-            <button class="btn-action">发消息</button>
+            <button @click="openMessageWindow(group)" class="btn-action">发消息</button>
           </div>
         </div>
       </div>
@@ -136,12 +139,24 @@
         </span>
       </div>
     </div>
+
+    <!-- 消息窗口 -->
+    <MessageWindow
+      v-if="messageWindow.visible"
+      :contact-type="'group'"
+      :contact-id="messageWindow.contactId"
+      :contact-name="messageWindow.contactName"
+      :visible="messageWindow.visible"
+      @close="closeMessageWindow"
+      @message-sent="onMessageSent"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import MessageWindow from '../components/MessageWindow.vue';
 
 // 响应式数据
 const botAccounts = ref([]);
@@ -152,6 +167,13 @@ const loading = ref(false);
 const error = ref('');
 const currentPage = ref(1);
 const pageSize = 20;
+
+// 消息窗口状态
+const messageWindow = ref({
+  visible: false,
+  contactId: 0,
+  contactName: ''
+});
 
 // 计算属性
 const showBotSelector = computed(() => botAccounts.value.length > 1);
@@ -241,6 +263,33 @@ const refreshData = async () => {
 
 const onBotChange = async () => {
   await loadGroups();
+};
+
+// 头像相关方法
+const getGroupAvatar = (groupId) => {
+  return `https://p.qlogo.cn/gh/${groupId}/${groupId}/640/`;
+};
+
+const handleAvatarError = (event) => {
+  // 头像加载失败时使用默认头像
+  event.target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMjAiIGZpbGw9IiNFNUU3RUIiLz4KPGNpcmNsZSBjeD0iMjAiIGN5PSIxNiIgcj0iNiIgZmlsbD0iIzlDQTNBRiIvPgo8cGF0aCBkPSJNMzAgMzJDMzAgMjYuNDc3MSAyNS41MjI5IDIyIDIwIDIyQzE0LjQ3NzEgMjIgMTAgMjYuNDc3MSAxMCAzMiIgZmlsbD0iIzlDQTNBRiIvPgo8L3N2Zz4K';
+};
+
+// 消息窗口相关方法
+const openMessageWindow = (group) => {
+  messageWindow.value = {
+    visible: true,
+    contactId: group.group_id,
+    contactName: group.group_name
+  };
+};
+
+const closeMessageWindow = () => {
+  messageWindow.value.visible = false;
+};
+
+const onMessageSent = (message) => {
+  console.log('消息已发送:', message);
 };
 
 // 监听搜索查询变化，重置分页
@@ -458,6 +507,15 @@ onMounted(async () => {
 
 .group-avatar {
   margin-right: 16px;
+}
+
+.avatar-image {
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
+  object-fit: cover;
+  border: 2px solid var(--border-color);
+  transition: all 0.2s ease;
 }
 
 .avatar-placeholder {
