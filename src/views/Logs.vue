@@ -107,6 +107,9 @@ const settings = reactive({
 const logsContainer = ref(null);
 let unlistenLogEntry = null;
 
+// 用于跟踪已显示的日志ID，防止重复
+const displayedLogIds = ref(new Set());
+
 // 计算属性
 const messageCount = computed(() => 
   logs.value.filter(log => log.category === 'message').length
@@ -115,6 +118,33 @@ const messageCount = computed(() =>
 const heartbeatCount = computed(() => 
   logs.value.filter(log => log.category === 'heartbeat').length
 );
+
+// 工具方法
+const addLogWithDeduplication = (logEntry) => {
+  // 检查是否已存在相同ID的日志
+  if (displayedLogIds.value.has(logEntry.id)) {
+    return false; // 已存在，跳过
+  }
+
+  // 添加到显示列表和ID集合
+  displayedLogIds.value.add(logEntry.id);
+  logs.value.push(logEntry);
+
+  // 限制日志条目数量
+  if (logs.value.length > settings.max_log_entries) {
+    const removedLog = logs.value.shift();
+    if (removedLog) {
+      displayedLogIds.value.delete(removedLog.id);
+    }
+  }
+
+  return true; // 成功添加
+};
+
+const clearAllLogs = () => {
+  logs.value = [];
+  displayedLogIds.value.clear();
+};
 
 // 方法
 const loadSettings = async () => {
@@ -137,8 +167,16 @@ const updateSettings = async () => {
 
 const loadLogHistory = async () => {
   try {
+    // 清空现有日志，避免重复
+    clearAllLogs();
+
     const history = await invoke('get_log_history');
-    logs.value = history;
+
+    // 使用去重逻辑加载历史日志
+    for (const logEntry of history) {
+      addLogWithDeduplication(logEntry);
+    }
+
     await nextTick();
     scrollToBottom();
   } catch (error) {
@@ -149,7 +187,7 @@ const loadLogHistory = async () => {
 const clearLogs = async () => {
   try {
     await invoke('clear_log_history');
-    logs.value = [];
+    clearAllLogs();
     console.log('日志已清空');
   } catch (error) {
     console.error('清空日志失败:', error);
@@ -158,26 +196,30 @@ const clearLogs = async () => {
 
 const subscribeToLogs = async () => {
   try {
+    // 如果已经有监听器，先清理
+    if (unlistenLogEntry) {
+      unlistenLogEntry();
+      unlistenLogEntry = null;
+    }
+
     // 订阅实时日志
     await invoke('subscribe_logs');
-    
+
     // 监听日志事件
     unlistenLogEntry = await listen('log-entry', (event) => {
       const logEntry = event.payload;
-      
+
       // 检查是否应该显示心跳包日志
       if (logEntry.category === 'heartbeat' && !settings.show_heartbeat_logs) {
         return;
       }
-      
-      // 添加到日志列表
-      logs.value.push(logEntry);
-      
-      // 限制日志条目数量
-      if (logs.value.length > settings.max_log_entries) {
-        logs.value.splice(0, logs.value.length - settings.max_log_entries);
+
+      // 使用去重机制添加日志
+      const added = addLogWithDeduplication(logEntry);
+      if (!added) {
+        return; // 已存在，跳过
       }
-      
+
       // 自动滚动到底部
       if (settings.auto_scroll_logs) {
         nextTick(() => scrollToBottom());
@@ -225,9 +267,14 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  // 清理事件监听器
   if (unlistenLogEntry) {
     unlistenLogEntry();
+    unlistenLogEntry = null;
   }
+
+  // 清理日志数据（可选，有助于内存管理）
+  clearAllLogs();
 });
 </script>
 
