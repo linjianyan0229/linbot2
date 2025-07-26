@@ -31,7 +31,11 @@ const selectNav = (item) => {
     <!-- 左侧侧边栏 -->
     <aside class="sidebar">
       <div class="sidebar-header">
+        <div class="logo-container">
+          <img src="./assets/icon.png" alt="LinBot2 Logo" class="app-logo"/>
+        </div>
         <h1 class="app-title">LinBot2</h1>
+        <p class="app-subtitle">智能机器人管理平台</p>
       </div>
       
       <nav class="sidebar-nav">
@@ -52,15 +56,7 @@ const selectNav = (item) => {
 
     <!-- 右侧内容区 -->
     <main class="main-content">
-      <div class="content-header">
-        <h2 class="content-title">
-          {{ navItems.find(item => item.id === activeNav)?.name || '首页' }}
-        </h2>
-      </div>
-      
-      <div class="content-body">
-        <router-view />
-      </div>
+      <router-view />
     </main>
   </div>
 </template>
@@ -115,20 +111,84 @@ body {
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
   display: flex;
   flex-direction: column;
+  position: relative;
+  overflow: hidden;
+}
+
+.sidebar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left 0.5s ease;
+}
+
+.sidebar:hover::before {
+  left: 100%;
 }
 
 .sidebar-header {
-  padding: 24px 20px;
+  padding: 32px 20px 24px;
   border-bottom: 1px solid var(--border-color);
   background: linear-gradient(135deg, var(--card-bg) 0%, #f8f6f0 100%);
+  text-align: center;
+  position: relative;
+}
+
+.sidebar-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--button-bg) 0%, var(--button-hover) 100%);
+}
+
+.logo-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 16px;
+  position: relative;
+}
+
+.app-logo {
+  width: 64px;
+  height: 64px;
+  border-radius: 15px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  transition: all 0.3s ease;
+  background: white;
+  padding: 8px;
+}
+
+.app-logo:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
 
 .app-title {
-  font-size: 20px;
-  font-weight: 600;
+  font-size: 24px;
+  font-weight: 700;
   color: var(--text-title);
-  text-align: center;
+  margin: 0 0 8px 0;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, var(--text-title) 0%, var(--button-bg) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.app-subtitle {
+  font-size: 12px;
+  color: #888;
   margin: 0;
+  font-weight: 400;
+  opacity: 0.8;
 }
 
 .sidebar-nav {
@@ -145,64 +205,88 @@ body {
 .nav-item {
   display: flex;
   align-items: center;
-  padding: 12px 20px;
-  margin: 4px 12px;
+  padding: 14px 20px;
+  margin: 6px 12px;
   border-radius: 15px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   color: var(--text-primary);
+  position: relative;
+  overflow: hidden;
+}
+
+.nav-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--button-bg);
+  transform: scaleY(0);
+  transition: transform 0.3s ease;
 }
 
 .nav-item:hover {
   background-color: rgba(169, 195, 166, 0.1);
-  transform: translateX(4px);
+  transform: translateX(6px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.nav-item:hover::before {
+  transform: scaleY(1);
 }
 
 .nav-item.active {
-  background-color: var(--button-bg);
+  background: linear-gradient(135deg, var(--button-bg) 0%, var(--button-hover) 100%);
   color: white;
-  box-shadow: 0 4px 12px rgba(169, 195, 166, 0.3);
+  box-shadow: 0 6px 20px rgba(169, 195, 166, 0.4);
+  transform: translateX(6px);
+}
+
+.nav-item.active::before {
+  transform: scaleY(1);
+  background: white;
 }
 
 .nav-icon {
-  font-size: 16px;
-  margin-right: 12px;
-  width: 20px;
+  font-size: 18px;
+  margin-right: 14px;
+  width: 24px;
   text-align: center;
+  transition: all 0.3s ease;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+.nav-item:hover .nav-icon {
+  transform: scale(1.1);
+}
+
+.nav-item.active .nav-icon {
+  transform: scale(1.15);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
 }
 
 .nav-text {
   font-size: 14px;
   font-weight: 500;
+  transition: all 0.3s ease;
+  letter-spacing: 0.3px;
+}
+
+.nav-item.active .nav-text {
+  font-weight: 600;
 }
 
 /* 右侧内容区 */
 .main-content {
   flex: 1;
-  display: flex;
-  flex-direction: column;
   background-color: var(--bg-color);
-}
-
-.content-header {
-  padding: 21px 32px;
-  background-color: var(--card-bg);
-  border-bottom: 1px solid var(--border-color);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-
-.content-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-title);
-  margin: 0;
-}
-
-.content-body {
-  flex: 1;
-  padding: 32px;
   overflow-y: auto;
+  height: 100vh;
 }
+
+
 
 .welcome-message {
   background-color: var(--card-bg);
