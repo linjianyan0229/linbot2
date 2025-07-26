@@ -1,83 +1,19 @@
 <template>
   <div class="server-list-page">
-    <!-- 添加服务器配置表单 -->
-    <div class="config-section">
-      <div class="section-header">
-        <h3 class="section-title">添加 OneBot 服务器</h3>
-      </div>
-      
-      <form @submit.prevent="addServer" class="config-form">
-        <div class="form-row">
-          <div class="form-group">
-            <label for="serverName" class="form-label">服务器名称</label>
-            <input
-              id="serverName"
-              v-model="newServer.name"
-              type="text"
-              class="form-input"
-              placeholder="例如：QQ机器人1"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label for="serverHost" class="form-label">监听地址</label>
-            <input
-              id="serverHost"
-              v-model="newServer.host"
-              type="text"
-              class="form-input"
-              placeholder="127.0.0.1"
-              required
-            />
-          </div>
-        </div>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label for="serverPort" class="form-label">端口</label>
-            <input
-              id="serverPort"
-              v-model.number="newServer.port"
-              type="number"
-              class="form-input"
-              placeholder="8080"
-              min="1024"
-              max="65535"
-              required
-            />
-          </div>
-          
-          <div class="form-group">
-            <label for="accessToken" class="form-label">访问令牌（可选）</label>
-            <input
-              id="accessToken"
-              v-model="newServer.accessToken"
-              type="text"
-              class="form-input"
-              placeholder="留空则不验证"
-            />
-          </div>
-        </div>
-        
-        <div class="form-actions">
-          <button type="submit" class="btn-primary" :disabled="isLoading">
-            <span v-if="isLoading">添加中...</span>
-            <span v-else>➕ 添加服务器</span>
-          </button>
-        </div>
-      </form>
-    </div>
-
     <!-- 服务器列表 -->
     <div class="servers-section">
       <div class="section-header">
         <h3 class="section-title">服务器列表</h3>
-        <div class="header-info">
-          <span class="server-count">{{ servers.length }} 个服务器</span>
-          <span v-if="configPath" class="config-path" :title="configPath">
-            📁 配置文件: {{ configPath.split('\\').pop() || configPath.split('/').pop() }}
-          </span>
+        <div class="header-actions">
+          <div class="header-info">
+            <span class="server-count">{{ servers.length }} 个服务器</span>
+            <span v-if="configPath" class="config-path" :title="configPath">
+              📁 配置文件: {{ configPath.split('\\').pop() || configPath.split('/').pop() }}
+            </span>
+          </div>
+          <button @click="showAddDialog = true" class="btn-add-server">
+            ➕ 添加服务器
+          </button>
         </div>
       </div>
       
@@ -140,6 +76,87 @@
         </div>
       </div>
     </div>
+
+    <!-- 添加服务器弹窗 -->
+    <div v-if="showAddDialog" class="dialog-overlay" @click="closeDialog">
+      <div class="dialog-content" @click.stop>
+        <div class="dialog-header">
+          <h3 class="dialog-title">添加 OneBot 服务器</h3>
+          <button @click="closeDialog" class="btn-close">✕</button>
+        </div>
+        
+        <!-- 错误信息提示 -->
+        <div v-if="errorMessage" class="error-message">
+          <span class="error-icon">⚠️</span>
+          <span class="error-text">{{ errorMessage }}</span>
+        </div>
+        
+        <form @submit.prevent="addServer" class="dialog-form">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="dialogServerName" class="form-label">服务器名称</label>
+              <input
+                id="dialogServerName"
+                v-model="newServer.name"
+                type="text"
+                class="form-input"
+                placeholder="例如：QQ机器人1"
+                required
+              />
+            </div>
+            
+            <div class="form-group">
+              <label for="dialogServerHost" class="form-label">监听地址</label>
+              <input
+                id="dialogServerHost"
+                v-model="newServer.host"
+                type="text"
+                class="form-input"
+                placeholder="127.0.0.1"
+                required
+              />
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label for="dialogServerPort" class="form-label">端口</label>
+              <input
+                id="dialogServerPort"
+                v-model.number="newServer.port"
+                type="number"
+                class="form-input"
+                placeholder="8080"
+                min="1024"
+                max="65535"
+                required
+              />
+            </div>
+            
+            <div class="form-group">
+              <label for="dialogAccessToken" class="form-label">访问令牌（可选）</label>
+              <input
+                id="dialogAccessToken"
+                v-model="newServer.accessToken"
+                type="text"
+                class="form-input"
+                placeholder="留空则不验证"
+              />
+            </div>
+          </div>
+          
+          <div class="dialog-actions">
+            <button type="button" @click="closeDialog" class="btn-cancel">
+              取消
+            </button>
+            <button type="submit" class="btn-primary" :disabled="isLoading">
+              <span v-if="isLoading">添加中...</span>
+              <span v-else>➕ 添加服务器</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -151,6 +168,8 @@ import { invoke } from '@tauri-apps/api/core';
 const servers = ref([]);
 const isLoading = ref(false);
 const configPath = ref('');
+const showAddDialog = ref(false);
+const errorMessage = ref('');
 
 const newServer = reactive({
   name: '',
@@ -169,18 +188,64 @@ const getStatusText = (status) => {
   return statusMap[status] || '未知';
 };
 
+// 关闭弹窗
+const closeDialog = () => {
+  showAddDialog.value = false;
+  errorMessage.value = '';
+  // 重置表单
+  newServer.name = '';
+  newServer.host = '127.0.0.1';
+  newServer.port = 8080;
+  newServer.accessToken = '';
+};
+
 // 添加服务器
 const addServer = async () => {
   if (isLoading.value) return;
+  
+  // 清除之前的错误信息
+  errorMessage.value = '';
+  
+  // 验证服务器名称是否重复
+  const existingNameServer = servers.value.find(server => 
+    server.name.toLowerCase() === newServer.name.toLowerCase().trim()
+  );
+  if (existingNameServer) {
+    errorMessage.value = `服务器名称 "${newServer.name}" 已存在，请使用不同的名称！`;
+    return;
+  }
+  
+  // 验证服务器地址是否重复
+  const serverAddress = `${newServer.host.trim()}:${newServer.port}`;
+  const existingAddressServer = servers.value.find(server => 
+    `${server.host}:${server.port}` === serverAddress
+  );
+  if (existingAddressServer) {
+    errorMessage.value = `服务器地址 "${serverAddress}" 已存在（服务器：${existingAddressServer.name}），请使用不同的地址或端口！`;
+    return;
+  }
+  
+  // 验证端口范围
+  if (newServer.port < 1024 || newServer.port > 65535) {
+    errorMessage.value = '端口号必须在 1024-65535 范围内！';
+    return;
+  }
+  
+  // 验证主机地址格式（简单验证）
+  const hostPattern = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$|^localhost$|^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+  if (!hostPattern.test(newServer.host.trim())) {
+    errorMessage.value = '请输入有效的主机地址（IP地址、localhost 或域名）！';
+    return;
+  }
   
   isLoading.value = true;
   try {
     // 调用后端添加服务器配置
     const result = await invoke('add_server_config', {
-      name: newServer.name,
-      host: newServer.host,
+      name: newServer.name.trim(),
+      host: newServer.host.trim(),
       port: newServer.port,
-      accessToken: newServer.accessToken || null
+      accessToken: newServer.accessToken ? newServer.accessToken.trim() : null
     });
     
     // 转换为前端格式
@@ -200,15 +265,12 @@ const addServer = async () => {
     
     servers.value.push(serverConfig);
     
-    // 重置表单
-    newServer.name = '';
-    newServer.host = '127.0.0.1';
-    newServer.port = 8080;
-    newServer.accessToken = '';
+    // 关闭弹窗并重置表单
+    closeDialog();
     
   } catch (error) {
     console.error('添加服务器失败:', error);
-    alert('添加服务器失败: ' + error);
+    errorMessage.value = '添加服务器失败: ' + error;
   } finally {
     isLoading.value = false;
   }
@@ -416,21 +478,20 @@ onUnmounted(() => {
   padding: 0;
 }
 
-/* 配置表单区域 */
-.config-section {
-  background-color: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 15px;
-  padding: 24px;
-  margin-bottom: 24px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
-}
+
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+}
+
+.header-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
 }
 
 .section-title {
@@ -469,12 +530,27 @@ onUnmounted(() => {
   opacity: 0.8;
 }
 
-/* 表单样式 */
-.config-form {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+/* 添加服务器按钮 */
+.btn-add-server {
+  background-color: var(--button-bg);
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 15px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(169, 195, 166, 0.3);
 }
+
+.btn-add-server:hover {
+  background-color: var(--button-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(169, 195, 166, 0.4);
+}
+
+/* 表单样式 */
 
 .form-row {
   display: grid;
@@ -510,11 +586,7 @@ onUnmounted(() => {
   box-shadow: 0 0 0 3px rgba(169, 195, 166, 0.1);
 }
 
-.form-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 8px;
-}
+
 
 /* 按钮样式 */
 .btn-primary {
@@ -720,6 +792,142 @@ onUnmounted(() => {
   opacity: 1;
 }
 
+/* 弹窗样式 */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.dialog-content {
+  background-color: var(--card-bg);
+  border-radius: 15px;
+  padding: 0;
+  max-width: 600px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
+  animation: dialogShow 0.3s ease-out;
+}
+
+@keyframes dialogShow {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 32px;
+  border-bottom: 1px solid var(--border-color);
+  background: linear-gradient(135deg, var(--card-bg) 0%, #f8f6f0 100%);
+  border-radius: 15px 15px 0 0;
+}
+
+.dialog-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-title);
+  margin: 0;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 15px;
+  transition: all 0.3s ease;
+  opacity: 0.6;
+}
+
+.btn-close:hover {
+  background-color: rgba(169, 195, 166, 0.1);
+  opacity: 1;
+}
+
+.error-message {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: 20px 32px 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: errorShow 0.3s ease-out;
+}
+
+@keyframes errorShow {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.error-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.error-text {
+  color: #dc2626;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.dialog-form {
+  padding: 32px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.btn-cancel {
+  background-color: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 12px 24px;
+  border-radius: 15px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.btn-cancel:hover {
+  background-color: var(--border-color);
+  transform: translateY(-1px);
+}
+
 @media (max-width: 768px) {
   .form-row {
     grid-template-columns: 1fr;
@@ -727,6 +935,29 @@ onUnmounted(() => {
   
   .server-grid {
     grid-template-columns: 1fr;
+  }
+  
+  .dialog-content {
+    width: 95%;
+    margin: 20px;
+  }
+  
+  .dialog-header {
+    padding: 20px 24px;
+  }
+  
+  .dialog-form {
+    padding: 24px;
+  }
+  
+  .dialog-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+  
+  .btn-cancel,
+  .btn-primary {
+    width: 100%;
   }
 }
 </style> 
