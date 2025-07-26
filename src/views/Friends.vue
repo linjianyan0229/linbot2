@@ -1,126 +1,159 @@
 <template>
-  <div class="friends-container">
+  <div class="friends-page">
     <!-- 页面头部 -->
-    <div class="friends-header">
-      <h2 class="section-title">好友列表</h2>
+    <div class="page-header">
+      <div class="header-content">
+        <div class="title-section">
+          <h1 class="page-title">好友列表</h1>
+          <p class="page-subtitle">管理和查看机器人的好友信息</p>
+        </div>
+
+        <div class="header-stats">
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div class="stat-info">
+              <div class="stat-number">{{ filteredFriends.length }}</div>
+              <div class="stat-label">好友总数</div>
+            </div>
+          </div>
+          <div class="stat-card" v-if="searchQuery">
+            <div class="stat-icon">🔍</div>
+            <div class="stat-info">
+              <div class="stat-number">{{ filteredFriends.length }}</div>
+              <div class="stat-label">搜索结果</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="header-controls">
-        <!-- 机器人选择器（多服务器模式） -->
-        <div v-if="showBotSelector" class="bot-selector">
-          <select
-            v-model="selectedBotId"
-            @change="onBotChange"
-            class="bot-select"
-          >
-            <option value="">选择机器人账号</option>
-            <option
-              v-for="bot in botAccounts"
-              :key="bot.self_id"
-              :value="bot.self_id"
+        <div class="control-group">
+          <!-- 机器人选择器 -->
+          <div v-if="showBotSelector" class="control-item">
+            <label class="control-label">机器人账号</label>
+            <select
+              v-model="selectedBotId"
+              @change="onBotChange"
+              class="control-select"
             >
-              {{ bot.nickname }} ({{ bot.self_id }})
-            </option>
-          </select>
-        </div>
+              <option value="">选择机器人账号</option>
+              <option
+                v-for="bot in botAccounts"
+                :key="bot.self_id"
+                :value="bot.self_id"
+              >
+                {{ bot.nickname }} ({{ bot.self_id }})
+              </option>
+            </select>
+          </div>
 
-        <!-- 搜索框 -->
-        <div class="search-box">
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="搜索好友昵称..."
-            class="search-input"
-          />
-        </div>
-
-        <!-- 刷新按钮 -->
-        <button @click="refreshData" class="btn-refresh" :disabled="loading">
-          <span class="refresh-icon">🔄</span>
-          刷新
-        </button>
-      </div>
-    </div>
-
-    <!-- 内容区域 -->
-    <div class="friends-content">
-      <!-- 加载状态 -->
-      <div v-if="loading" class="loading-state">
-        <div class="loading-spinner"></div>
-        <div class="loading-text">加载中...</div>
-      </div>
-
-      <!-- 错误状态 -->
-      <div v-else-if="error" class="error-state">
-        <div class="error-icon">⚠️</div>
-        <div class="error-text">{{ error }}</div>
-        <button @click="refreshData" class="btn-retry">重试</button>
-      </div>
-
-      <!-- 空状态 -->
-      <div v-else-if="filteredFriends.length === 0 && !loading" class="empty-state">
-        <div class="empty-icon">👥</div>
-        <div class="empty-text">
-          {{ selectedBotId ? '该机器人暂无好友' : '请先选择机器人账号' }}
-        </div>
-        <div class="empty-hint">
-          {{ selectedBotId ? '好友列表为空或正在加载中' : '从上方下拉菜单中选择要查看的机器人账号' }}
-        </div>
-      </div>
-
-      <!-- 好友列表 -->
-      <div v-else class="friends-list">
-        <div
-          v-for="friend in paginatedFriends"
-          :key="friend.user_id"
-          class="friend-item"
-        >
-          <div class="friend-avatar">
-            <img
-              :src="getFriendAvatar(friend.user_id)"
-              :alt="friend.nickname"
-              class="avatar-image"
-              @error="handleAvatarError"
+          <!-- 搜索框 -->
+          <div class="control-item">
+            <label class="control-label">搜索好友</label>
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="输入昵称、备注或ID..."
+              class="control-input"
             />
           </div>
-          <div class="friend-info">
-            <div class="friend-name">{{ friend.nickname }}</div>
-            <div class="friend-remark" v-if="friend.remark && friend.remark !== friend.nickname">
-              备注: {{ friend.remark }}
-            </div>
-            <div class="friend-id">ID: {{ friend.user_id }}</div>
-          </div>
-          <div class="friend-actions">
-            <button @click="openMessageWindow(friend)" class="btn-action">发消息</button>
-          </div>
+        </div>
+
+        <div class="action-buttons">
+          <button @click="refreshData" class="btn-primary" :disabled="loading">
+            <span class="btn-icon">🔄</span>
+            <span class="btn-text">{{ loading ? '刷新中...' : '刷新数据' }}</span>
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- 分页控制 -->
-    <div v-if="totalPages > 1" class="pagination">
-      <button
-        @click="currentPage--"
-        :disabled="currentPage <= 1"
-        class="btn-page"
-      >
-        上一页
-      </button>
-      <span class="page-info">
-        第 {{ currentPage }} 页，共 {{ totalPages }} 页
-      </span>
-      <button
-        @click="currentPage++"
-        :disabled="currentPage >= totalPages"
-        class="btn-page"
-      >
-        下一页
-      </button>
-    </div>
+    <!-- 好友内容区域 -->
+    <div class="friends-content">
+      <!-- 空状态 -->
+      <div v-if="friends.length === 0" class="empty-state">
+        <div class="empty-illustration">
+          <div class="empty-icon">👥</div>
+          <div class="empty-decoration"></div>
+        </div>
+        <h3 class="empty-title">
+          {{ selectedBotId ? '暂无好友' : '请选择机器人账号' }}
+        </h3>
+        <p class="empty-description">
+          {{ selectedBotId ? '该机器人还没有添加任何好友，或好友列表正在加载中' : '请从上方选择要查看的机器人账号' }}
+        </p>
+      </div>
 
-    <!-- 状态栏 -->
-    <div class="friends-footer">
-      <div class="status-info">
-        <span class="status-item">总计: {{ filteredFriends.length }} 个好友</span>
-        <span v-if="searchQuery" class="status-item">搜索结果: {{ filteredFriends.length }} 个</span>
+      <div v-else class="friends-container">
+        <!-- 好友列表 -->
+        <div
+          ref="friendsContainer"
+          class="friends-list"
+        >
+          <div
+            v-for="friend in paginatedFriends"
+            :key="friend.user_id"
+            class="friend-entry"
+          >
+            <div class="friend-avatar">
+              <img
+                :src="getFriendAvatar(friend.user_id)"
+                :alt="friend.nickname"
+                class="avatar-image"
+                @error="handleAvatarError"
+              />
+              <div class="avatar-status"></div>
+            </div>
+
+            <div class="friend-info">
+              <div class="friend-name">{{ friend.nickname }}</div>
+              <div class="friend-details">
+                <span v-if="friend.remark && friend.remark !== friend.nickname" class="friend-remark">
+                  备注: {{ friend.remark }}
+                </span>
+                <span class="friend-id">ID: {{ friend.user_id }}</span>
+              </div>
+            </div>
+
+            <div class="friend-actions">
+              <button @click="openMessageWindow(friend)" class="btn-message" title="发送消息">
+                <span class="btn-icon">💬</span>
+                <span class="btn-text">发消息</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 分页和状态信息 -->
+        <div class="friends-footer">
+          <div class="footer-info">
+            <span class="info-text">
+              显示 {{ paginatedFriends.length }} / {{ filteredFriends.length }} 个好友
+            </span>
+            <span v-if="searchQuery" class="info-text">
+              (搜索结果: {{ filteredFriends.length }} 个)
+            </span>
+          </div>
+          <div class="footer-actions">
+            <button
+              @click="currentPage--"
+              :disabled="currentPage <= 1"
+              class="btn-page"
+              title="上一页"
+            >
+              <span class="btn-icon">⬅️</span>
+            </button>
+            <span class="page-info">{{ currentPage }} / {{ totalPages }}</span>
+            <button
+              @click="currentPage++"
+              :disabled="currentPage >= totalPages"
+              class="btn-page"
+              title="下一页"
+            >
+              <span class="btn-icon">➡️</span>
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -134,6 +167,23 @@
       @close="closeMessageWindow"
       @message-sent="onMessageSent"
     />
+
+    <!-- 加载遮罩 -->
+    <div v-if="loading" class="loading-overlay">
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">正在加载好友列表...</div>
+      </div>
+    </div>
+
+    <!-- 错误提示 -->
+    <div v-if="error" class="error-toast">
+      <div class="error-content">
+        <span class="error-icon">⚠️</span>
+        <span class="error-message">{{ error }}</span>
+        <button @click="error = ''" class="error-close">✕</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -285,209 +335,299 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.friends-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background-color: var(--bg-color);
-}
-
-.friends-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border-color);
-  background-color: var(--card-bg);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-}
-
-.section-title {
-  color: var(--text-title);
-  font-size: 24px;
-  font-weight: 600;
-  margin: 0;
-}
-
-.header-controls {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.bot-selector {
-  min-width: 200px;
-}
-
-.bot-select {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 15px;
-  background-color: var(--card-bg);
-  color: var(--text-primary);
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.bot-select:focus {
-  outline: none;
-  border-color: var(--button-bg);
-  box-shadow: 0 0 0 2px rgba(169, 195, 166, 0.2);
-}
-
-.search-box {
-  min-width: 200px;
-}
-
-.search-input {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 15px;
-  background-color: var(--card-bg);
-  color: var(--text-primary);
-  font-size: 14px;
-  transition: all 0.2s ease;
-}
-
-.search-input:focus {
-  outline: none;
-  border-color: var(--button-bg);
-  box-shadow: 0 0 0 2px rgba(169, 195, 166, 0.2);
-}
-
-.search-input::placeholder {
-  color: #999;
-}
-
-.btn-refresh {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  background-color: var(--button-bg);
-  color: white;
-  border: none;
-  border-radius: 30px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btn-refresh:hover:not(:disabled) {
-  background-color: var(--button-hover);
-  transform: translateY(-1px);
-}
-
-.btn-refresh:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.refresh-icon {
-  font-size: 12px;
-}
-
-.friends-content {
-  flex: 1;
+/* 页面容器 */
+.friends-page {
+  padding: 20px;
+  background-color: #f5f5f1;
+  height: 720px;
+  max-height: 720px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-/* 状态样式 */
-.loading-state,
-.error-state,
-.empty-state {
+/* 页面头部 */
+.page-header {
+  background: #fffcf6;
+  border-radius: 15px;
+  border: 1px solid #e4ddd3;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  padding: 20px;
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+
+.title-section {
+  flex: 1;
+}
+
+.page-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: #4a593d;
+  margin: 0 0 6px 0;
+  letter-spacing: -0.5px;
+}
+
+.page-subtitle {
+  font-size: 16px;
+  color: #6e8b67;
+  margin: 0;
+  opacity: 0.8;
+}
+
+.header-stats {
+  display: flex;
+  gap: 16px;
+}
+
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #f8f6f0 0%, #fffcf6 100%);
+  padding: 12px 16px;
+  border-radius: 15px;
+  border: 1px solid #e4ddd3;
+  min-width: 100px;
+}
+
+.stat-icon {
+  font-size: 20px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+}
+
+.stat-number {
+  font-size: 20px;
+  font-weight: 700;
+  color: #4a593d;
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #6e8b67;
+  opacity: 0.8;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.control-group {
+  display: flex;
+  gap: 20px;
+}
+
+.control-item {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  padding: 60px 40px;
-  text-align: center;
+  gap: 6px;
 }
 
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--border-color);
-  border-top: 3px solid var(--button-bg);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 16px;
+.control-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6e8b67;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.loading-text,
-.error-text,
-.empty-text {
-  font-size: 18px;
-  color: var(--text-title);
-  font-weight: 500;
-  margin-bottom: 8px;
-}
-
-.error-icon,
-.empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.empty-hint {
+.control-select,
+.control-input {
+  padding: 10px 14px;
+  border: 1px solid #e4ddd3;
+  border-radius: 15px;
+  background: #fffcf6;
+  color: #4a593d;
   font-size: 14px;
-  color: #888;
-  line-height: 1.5;
+  min-width: 180px;
+  transition: all 0.3s ease;
 }
 
-.btn-retry {
-  margin-top: 16px;
-  padding: 8px 16px;
-  background-color: var(--button-bg);
+.control-select:focus,
+.control-input:focus {
+  outline: none;
+  border-color: #a9c3a6;
+  box-shadow: 0 0 0 3px rgba(169, 195, 166, 0.1);
+  transform: translateY(-1px);
+}
+
+.control-input::placeholder {
+  color: #a0a0a0;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #a9c3a6;
   color: white;
   border: none;
   border-radius: 30px;
   font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(169, 195, 166, 0.3);
 }
 
-.btn-retry:hover {
-  background-color: var(--button-hover);
+.btn-primary:hover:not(:disabled) {
+  background: #8fb58b;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(169, 195, 166, 0.4);
 }
 
-/* 好友列表样式 */
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-icon {
+  font-size: 14px;
+}
+
+.btn-text {
+  font-weight: inherit;
+}
+
+/* 好友内容区域 */
+.friends-content {
+  flex: 1;
+  background: #fffcf6;
+  border-radius: 15px;
+  border: 1px solid #e4ddd3;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 空状态 */
+.empty-state {
+  text-align: center;
+  padding: 60px 40px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+}
+
+.empty-illustration {
+  position: relative;
+  margin-bottom: 32px;
+}
+
+.empty-icon {
+  font-size: 64px;
+  opacity: 0.6;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.1));
+}
+
+.empty-decoration {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  width: 24px;
+  height: 24px;
+  background: linear-gradient(135deg, #a9c3a6, #8fb58b);
+  border-radius: 50%;
+  opacity: 0.7;
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-10px) rotate(180deg); }
+}
+
+.empty-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #4a593d;
+  margin: 0 0 12px 0;
+}
+
+.empty-description {
+  font-size: 16px;
+  color: #6e8b67;
+  line-height: 1.6;
+  max-width: 400px;
+  margin: 0;
+  opacity: 0.8;
+}
+
+/* 好友容器 */
+.friends-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 好友列表 */
 .friends-list {
   flex: 1;
   overflow-y: auto;
-  padding: 16px 24px;
+  padding: 16px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
-.friend-item {
+/* 好友条目 */
+.friend-entry {
   display: flex;
   align-items: center;
-  padding: 16px;
-  margin-bottom: 12px;
-  background-color: var(--card-bg);
-  border: 1px solid var(--border-color);
+  gap: 16px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  background: #f8f6f0;
+  border: 1px solid #f0ede6;
   border-radius: 15px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  transition: all 0.2s ease;
+  transition: all 0.3s ease;
+  animation: friendEntryFadeIn 0.4s ease-out;
 }
 
-.friend-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+.friend-entry:hover {
+  background: #f0ede6;
+  border-color: #e4ddd3;
+  transform: translateX(4px);
 }
 
+@keyframes friendEntryFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 头像区域 */
 .friend-avatar {
-  margin-right: 16px;
+  position: relative;
+  flex-shrink: 0;
 }
 
 .avatar-image {
@@ -495,23 +635,27 @@ onMounted(async () => {
   height: 48px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid var(--border-color);
-  transition: all 0.2s ease;
+  border: 2px solid #e4ddd3;
+  transition: all 0.3s ease;
 }
 
-.avatar-placeholder {
-  width: 48px;
-  height: 48px;
+.friend-entry:hover .avatar-image {
+  border-color: #a9c3a6;
+  transform: scale(1.05);
+}
+
+.avatar-status {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  background: #4caf50;
+  border: 2px solid #fffcf6;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--button-bg), var(--button-hover));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-size: 18px;
-  font-weight: 600;
 }
 
+/* 好友信息 */
 .friend-info {
   flex: 1;
   min-width: 0;
@@ -520,114 +664,247 @@ onMounted(async () => {
 .friend-name {
   font-size: 16px;
   font-weight: 600;
-  color: var(--text-title);
+  color: #4a593d;
   margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.friend-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .friend-remark {
-  font-size: 14px;
-  color: var(--text-primary);
-  margin-bottom: 2px;
+  font-size: 13px;
+  color: #6e8b67;
+  opacity: 0.8;
 }
 
 .friend-id {
   font-size: 12px;
-  color: #888;
+  color: #a0a0a0;
+  font-family: 'Monaco', 'Menlo', monospace;
 }
 
+/* 好友操作 */
 .friend-actions {
-  margin-left: 16px;
+  flex-shrink: 0;
 }
 
-.btn-action {
-  padding: 6px 12px;
-  background-color: var(--border-color);
-  color: var(--text-primary);
-  border: none;
-  border-radius: 15px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.btn-action:hover {
-  background-color: var(--button-bg);
-  color: white;
-}
-
-/* 分页样式 */
-.pagination {
+.btn-message {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #a9c3a6;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(169, 195, 166, 0.3);
+}
+
+.btn-message:hover {
+  background: #8fb58b;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(169, 195, 166, 0.4);
+}
+
+/* 好友底部 */
+.friends-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  border-top: 1px solid #f0ede6;
+  flex-shrink: 0;
+  background: #fffcf6;
+}
+
+.footer-info {
+  display: flex;
   gap: 16px;
-  padding: 16px 24px;
-  border-top: 1px solid var(--border-color);
-  background-color: var(--card-bg);
+  align-items: center;
+}
+
+.info-text {
+  font-size: 13px;
+  color: #6e8b67;
+  opacity: 0.8;
+}
+
+.footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .btn-page {
-  padding: 8px 16px;
-  background-color: var(--button-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: #a9c3a6;
   color: white;
   border: none;
-  border-radius: 30px;
-  font-size: 14px;
+  border-radius: 50%;
+  font-size: 12px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 6px rgba(169, 195, 166, 0.3);
 }
 
 .btn-page:hover:not(:disabled) {
-  background-color: var(--button-hover);
+  background: #8fb58b;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(169, 195, 166, 0.4);
 }
 
 .btn-page:disabled {
-  background-color: var(--border-color);
-  color: #888;
+  background: #e4ddd3;
+  color: #a0a0a0;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .page-info {
-  font-size: 14px;
-  color: var(--text-primary);
+  font-size: 13px;
+  color: #4a593d;
+  font-weight: 500;
+  min-width: 60px;
+  text-align: center;
 }
 
-/* 状态栏样式 */
-.friends-footer {
-  padding: 12px 24px;
-  border-top: 1px solid var(--border-color);
-  background-color: var(--card-bg);
-}
-
-.status-info {
-  display: flex;
-  gap: 20px;
-  font-size: 12px;
-  color: #888;
-}
-
-.status-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* 滚动条样式 */
+/* 自定义滚动条样式 */
 .friends-list::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 .friends-list::-webkit-scrollbar-track {
-  background: var(--border-color);
-  border-radius: 3px;
+  background: #f5f5f1;
+  border-radius: 4px;
 }
 
 .friends-list::-webkit-scrollbar-thumb {
-  background: var(--button-bg);
-  border-radius: 3px;
+  background: #a9c3a6;
+  border-radius: 4px;
+  transition: background 0.3s ease;
 }
 
 .friends-list::-webkit-scrollbar-thumb:hover {
-  background: var(--button-hover);
+  background: #8fb58b;
+}
+
+/* 加载遮罩 */
+.loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(245, 245, 241, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.loading-content {
+  text-align: center;
+  padding: 32px;
+  background: #fffcf6;
+  border-radius: 15px;
+  border: 1px solid #e4ddd3;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e4ddd3;
+  border-top: 3px solid #a9c3a6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 0 auto 16px;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-size: 16px;
+  color: #4a593d;
+  font-weight: 500;
+}
+
+/* 错误提示 */
+.error-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 2000;
+  animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.error-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: #fff5f5;
+  border: 1px solid #fed7d7;
+  border-radius: 15px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  max-width: 400px;
+}
+
+.error-icon {
+  font-size: 20px;
+  color: #e53e3e;
+}
+
+.error-message {
+  flex: 1;
+  font-size: 14px;
+  color: #742a2a;
+  line-height: 1.4;
+}
+
+.error-close {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: #a0a0a0;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.error-close:hover {
+  background: #fed7d7;
+  color: #742a2a;
 }
 </style>

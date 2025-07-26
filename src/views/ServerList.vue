@@ -1,76 +1,115 @@
 <template>
   <div class="server-list-page">
-    <!-- 服务器列表 -->
-    <div class="servers-section">
-      <div class="section-header">
-        <h3 class="section-title">服务器列表</h3>
-        <div class="header-actions">
-          <div class="header-info">
-            <span class="server-count">{{ servers.length }} 个服务器</span>
-            <span v-if="configPath" class="config-path" :title="configPath">
-              📁 配置文件: {{ configPath.split('\\').pop() || configPath.split('/').pop() }}
-            </span>
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <div class="header-content">
+        <div class="title-section">
+          <h1 class="page-title">服务器管理</h1>
+          <p class="page-subtitle">管理您的 OneBot 服务器配置</p>
+        </div>
+        <div class="header-stats">
+          <div class="stat-card">
+            <div class="stat-icon">🖥️</div>
+            <div class="stat-info">
+              <div class="stat-number">{{ servers.length }}</div>
+              <div class="stat-label">服务器总数</div>
+            </div>
           </div>
-          <button @click="showAddDialog = true" class="btn-add-server">
-            ➕ 添加服务器
-          </button>
+          <div class="stat-card">
+            <div class="stat-icon">🟢</div>
+            <div class="stat-info">
+              <div class="stat-number">{{ connectedServers }}</div>
+              <div class="stat-label">在线服务器</div>
+            </div>
+          </div>
         </div>
       </div>
-      
-      <div v-if="servers.length === 0" class="empty-state">
-        <div class="empty-icon">🖥️</div>
-        <p class="empty-text">暂无 OneBot 服务器</p>
-        <p class="empty-subtitle">请添加您的第一个服务器配置</p>
+
+      <div class="header-actions">
+        <div class="config-info" v-if="configPath">
+          <span class="config-icon">📁</span>
+          <span class="config-text" :title="configPath">
+            {{ configPath.split('\\').pop() || configPath.split('/').pop() }}
+          </span>
+        </div>
+        <button @click="showAddDialog = true" class="btn-primary">
+          <span class="btn-icon">➕</span>
+          <span class="btn-text">添加服务器</span>
+        </button>
       </div>
-      
+    </div>
+
+    <!-- 服务器内容区域 -->
+    <div class="servers-content">
+      <div v-if="servers.length === 0" class="empty-state">
+        <div class="empty-illustration">
+          <div class="empty-icon">🖥️</div>
+          <div class="empty-decoration"></div>
+        </div>
+        <h3 class="empty-title">暂无服务器配置</h3>
+        <p class="empty-description">开始添加您的第一个 OneBot 服务器，享受智能机器人管理体验</p>
+        <button @click="showAddDialog = true" class="btn-primary btn-large">
+          <span class="btn-icon">➕</span>
+          <span class="btn-text">添加第一个服务器</span>
+        </button>
+      </div>
+
       <div v-else class="server-grid">
         <div
           v-for="server in servers"
           :key="server.id"
           class="server-card"
+          :class="{ 'server-connected': server.status === 'connected' }"
         >
-          <!-- 状态指示器 -->
-          <div class="status-indicator">
-            <span 
-              class="status-dot"
-              :class="{
-                'status-connected': server.status === 'connected',
-                'status-connecting': server.status === 'connecting',
-                'status-disconnected': server.status === 'disconnected'
-              }"
-            ></span>
+          <!-- 卡片头部 -->
+          <div class="card-header">
+            <div class="server-title">
+              <h3 class="server-name">{{ server.name }}</h3>
+              <div class="server-address">{{ server.host }}:{{ server.port }}</div>
+            </div>
+            <div class="status-badge" :class="`status-${server.status}`">
+              <div class="status-dot"></div>
+              <span class="status-text">{{ getStatusText(server.status) }}</span>
+            </div>
           </div>
-          
-          <!-- 服务器信息 -->
-          <div class="server-info">
-            <h4 class="server-name">{{ server.name }}</h4>
-            <p class="server-address">{{ server.host }}:{{ server.port }}</p>
-            <p class="server-status">
-              状态: {{ getStatusText(server.status) }}
-              <span v-if="server.connections > 0" class="connection-count">
-                ({{ server.connections }} 个连接)
-              </span>
-            </p>
+
+          <!-- 卡片内容 -->
+          <div class="card-content">
+            <div class="server-metrics">
+              <div class="metric-item">
+                <span class="metric-icon">🔗</span>
+                <span class="metric-label">连接数</span>
+                <span class="metric-value">{{ server.connections || 0 }}</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-icon">⚙️</span>
+                <span class="metric-label">状态</span>
+                <span class="metric-value">{{ server.enabled ? '启用' : '禁用' }}</span>
+              </div>
+            </div>
           </div>
-          
-          <!-- 控制按钮 -->
-          <div class="server-controls">
+
+          <!-- 卡片操作 -->
+          <div class="card-actions">
             <button
               @click="toggleServer(server)"
-              class="btn-toggle"
+              class="btn-action"
               :class="{
                 'btn-stop': server.status === 'connected' || server.status === 'connecting',
                 'btn-start': server.status === 'disconnected'
               }"
               :disabled="server.status === 'connecting'"
             >
-              <span v-if="server.status === 'connected'">⏹️ 停止</span>
-              <span v-else-if="server.status === 'connecting'">⏳ 启动中</span>
-              <span v-else>▶️ 启动</span>
+              <span v-if="server.status === 'connected'" class="btn-icon">⏹️</span>
+              <span v-else-if="server.status === 'connecting'" class="btn-icon">⏳</span>
+              <span v-else class="btn-icon">▶️</span>
+              <span v-if="server.status === 'connected'" class="btn-text">停止</span>
+              <span v-else-if="server.status === 'connecting'" class="btn-text">启动中</span>
+              <span v-else class="btn-text">启动</span>
             </button>
-            
-            <button @click="removeServer(server.id)" class="btn-remove" title="删除服务器">
-              🗑️
+
+            <button @click="removeServer(server.id)" class="btn-danger" title="删除服务器">
+              <span class="btn-icon">🗑️</span>
             </button>
           </div>
         </div>
@@ -78,80 +117,101 @@
     </div>
 
     <!-- 添加服务器弹窗 -->
-    <div v-if="showAddDialog" class="dialog-overlay" @click="closeDialog">
-      <div class="dialog-content" @click.stop>
-        <div class="dialog-header">
-          <h3 class="dialog-title">添加 OneBot 服务器</h3>
-          <button @click="closeDialog" class="btn-close">✕</button>
+    <div v-if="showAddDialog" class="modal-overlay" @click="closeDialog">
+      <div class="modal-container" @click.stop>
+        <div class="modal-header">
+          <div class="modal-title-section">
+            <h2 class="modal-title">添加 OneBot 服务器</h2>
+            <p class="modal-subtitle">配置新的机器人服务器连接</p>
+          </div>
+          <button @click="closeDialog" class="btn-close">
+            <span class="close-icon">✕</span>
+          </button>
         </div>
-        
+
         <!-- 错误信息提示 -->
-        <div v-if="errorMessage" class="error-message">
-          <span class="error-icon">⚠️</span>
-          <span class="error-text">{{ errorMessage }}</span>
+        <div v-if="errorMessage" class="alert alert-error">
+          <div class="alert-icon">⚠️</div>
+          <div class="alert-content">
+            <div class="alert-title">配置错误</div>
+            <div class="alert-message">{{ errorMessage }}</div>
+          </div>
         </div>
         
-        <form @submit.prevent="addServer" class="dialog-form">
-          <div class="form-row">
-            <div class="form-group">
-              <label for="dialogServerName" class="form-label">服务器名称</label>
+        <form @submit.prevent="addServer" class="modal-form">
+          <div class="form-section">
+            <h3 class="section-title">基本信息</h3>
+            <div class="form-field">
+              <label for="dialogServerName" class="field-label">服务器名称</label>
               <input
                 id="dialogServerName"
                 v-model="newServer.name"
                 type="text"
-                class="form-input"
+                class="field-input"
                 placeholder="例如：QQ机器人1"
                 required
               />
-            </div>
-            
-            <div class="form-group">
-              <label for="dialogServerHost" class="form-label">监听地址</label>
-              <input
-                id="dialogServerHost"
-                v-model="newServer.host"
-                type="text"
-                class="form-input"
-                placeholder="127.0.0.1"
-                required
-              />
+              <div class="field-hint">为您的服务器起一个易识别的名称</div>
             </div>
           </div>
-          
-          <div class="form-row">
-            <div class="form-group">
-              <label for="dialogServerPort" class="form-label">端口</label>
-              <input
-                id="dialogServerPort"
-                v-model.number="newServer.port"
-                type="number"
-                class="form-input"
-                placeholder="8080"
-                min="1024"
-                max="65535"
-                required
-              />
+
+          <div class="form-section">
+            <h3 class="section-title">连接配置</h3>
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="dialogServerHost" class="field-label">监听地址</label>
+                <input
+                  id="dialogServerHost"
+                  v-model="newServer.host"
+                  type="text"
+                  class="field-input"
+                  placeholder="127.0.0.1"
+                  required
+                />
+                <div class="field-hint">服务器监听的IP地址</div>
+              </div>
+
+              <div class="form-field">
+                <label for="dialogServerPort" class="field-label">端口号</label>
+                <input
+                  id="dialogServerPort"
+                  v-model.number="newServer.port"
+                  type="number"
+                  class="field-input"
+                  placeholder="8080"
+                  min="1024"
+                  max="65535"
+                  required
+                />
+                <div class="field-hint">1024-65535 之间的端口号</div>
+              </div>
             </div>
-            
-            <div class="form-group">
-              <label for="dialogAccessToken" class="form-label">访问令牌（可选）</label>
+          </div>
+
+          <div class="form-section">
+            <h3 class="section-title">安全设置</h3>
+            <div class="form-field">
+              <label for="dialogAccessToken" class="field-label">访问令牌</label>
               <input
                 id="dialogAccessToken"
                 v-model="newServer.accessToken"
                 type="text"
-                class="form-input"
-                placeholder="留空则不验证"
+                class="field-input"
+                placeholder="留空则不验证访问令牌"
               />
+              <div class="field-hint">可选，用于验证客户端连接</div>
             </div>
           </div>
-          
-          <div class="dialog-actions">
-            <button type="button" @click="closeDialog" class="btn-cancel">
-              取消
+
+          <div class="modal-actions">
+            <button type="button" @click="closeDialog" class="btn-secondary">
+              <span class="btn-text">取消</span>
             </button>
             <button type="submit" class="btn-primary" :disabled="isLoading">
-              <span v-if="isLoading">添加中...</span>
-              <span v-else>➕ 添加服务器</span>
+              <span v-if="isLoading" class="btn-icon">⏳</span>
+              <span v-else class="btn-icon">➕</span>
+              <span v-if="isLoading" class="btn-text">添加中...</span>
+              <span v-else class="btn-text">添加服务器</span>
             </button>
           </div>
         </form>
@@ -161,7 +221,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue';
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 
 // 响应式数据
@@ -170,6 +230,11 @@ const isLoading = ref(false);
 const configPath = ref('');
 const showAddDialog = ref(false);
 const errorMessage = ref('');
+
+// 计算属性
+const connectedServers = computed(() => {
+  return servers.value.filter(server => server.status === 'connected').length;
+});
 
 const newServer = reactive({
   name: '',
@@ -472,229 +537,340 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 页面容器 */
 .server-list-page {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 0;
+  padding: 32px;
+  background-color: #f5f5f1;
+  min-height: 100vh;
 }
 
+/* 页面头部 */
+.page-header {
+  background: #fffcf6;
+  border-radius: 15px;
+  border: 1px solid #e4ddd3;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  padding: 32px;
+  margin-bottom: 32px;
+}
 
-
-.section-header {
+.header-content {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
+  align-items: flex-start;
+  margin-bottom: 24px;
 }
 
-.header-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
+.title-section {
+  flex: 1;
 }
 
-.section-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-title);
+.page-title {
+  font-size: 32px;
+  font-weight: 700;
+  color: #4a593d;
+  margin: 0 0 8px 0;
+  letter-spacing: -0.5px;
+}
+
+.page-subtitle {
+  font-size: 16px;
+  color: #6e8b67;
   margin: 0;
-}
-
-.header-info {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-}
-
-.server-count {
-  font-size: 14px;
-  color: var(--text-primary);
-  opacity: 0.7;
-}
-
-.config-path {
-  font-size: 12px;
-  color: var(--text-primary);
-  opacity: 0.6;
-  cursor: help;
-  max-width: 300px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: opacity 0.3s ease;
-}
-
-.config-path:hover {
   opacity: 0.8;
 }
 
-/* 添加服务器按钮 */
-.btn-add-server {
-  background-color: var(--button-bg);
-  color: white;
-  border: none;
-  padding: 12px 20px;
-  border-radius: 15px;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(169, 195, 166, 0.3);
-}
-
-.btn-add-server:hover {
-  background-color: var(--button-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(169, 195, 166, 0.4);
-}
-
-/* 表单样式 */
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.header-stats {
+  display: flex;
   gap: 16px;
 }
 
-.form-group {
+.stat-card {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.form-label {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-.form-input {
-  padding: 12px 16px;
-  border: 1px solid var(--border-color);
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, #f8f6f0 0%, #fffcf6 100%);
+  padding: 16px 20px;
   border-radius: 15px;
+  border: 1px solid #e4ddd3;
+  min-width: 120px;
+}
+
+.stat-icon {
+  font-size: 24px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+}
+
+.stat-number {
+  font-size: 24px;
+  font-weight: 700;
+  color: #4a593d;
+  line-height: 1;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #6e8b67;
+  opacity: 0.8;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.config-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8f6f0;
+  padding: 8px 16px;
+  border-radius: 30px;
+  border: 1px solid #e4ddd3;
+}
+
+.config-icon {
   font-size: 14px;
-  transition: all 0.3s ease;
-  background-color: var(--card-bg);
-  color: var(--text-primary);
 }
 
-.form-input:focus {
-  outline: none;
-  border-color: var(--button-bg);
-  box-shadow: 0 0 0 3px rgba(169, 195, 166, 0.1);
+.config-text {
+  font-size: 12px;
+  color: #6e8b67;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-
-
 
 /* 按钮样式 */
 .btn-primary {
-  background-color: var(--button-bg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, #a9c3a6 0%, #8fb58b 100%);
   color: white;
   border: none;
+  padding: 12px 24px;
+  border-radius: 30px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 16px rgba(169, 195, 166, 0.3);
+  letter-spacing: 0.3px;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #8fb58b 0%, #7a9e76 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(169, 195, 166, 0.4);
+}
+
+.btn-primary.btn-large {
+  padding: 16px 32px;
+  font-size: 16px;
+}
+
+.btn-secondary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8f6f0;
+  color: #6e8b67;
+  border: 1px solid #e4ddd3;
   padding: 12px 24px;
   border-radius: 30px;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(169, 195, 166, 0.3);
 }
 
-.btn-primary:hover:not(:disabled) {
-  background-color: var(--button-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(169, 195, 166, 0.4);
+.btn-secondary:hover {
+  background: #f0ede6;
+  border-color: #d4c7b8;
+  transform: translateY(-1px);
 }
 
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  transform: none;
+.btn-icon {
+  font-size: 16px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
 }
 
-/* 服务器列表区域 */
-.servers-section {
-  background-color: var(--card-bg);
-  border: 1px solid var(--border-color);
+.btn-text {
+  font-weight: inherit;
+}
+
+/* 服务器内容区域 */
+.servers-content {
+  background: #fffcf6;
   border-radius: 15px;
-  padding: 24px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e4ddd3;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
 }
 
+/* 空状态 */
 .empty-state {
   text-align: center;
-  padding: 60px 20px;
+  padding: 80px 40px;
+}
+
+.empty-illustration {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 32px;
 }
 
 .empty-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
+  font-size: 80px;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.1));
+  position: relative;
+  z-index: 2;
 }
 
-.empty-text {
-  font-size: 18px;
-  color: var(--text-title);
-  margin-bottom: 8px;
-  font-weight: 500;
+.empty-decoration {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 120px;
+  height: 120px;
+  background: linear-gradient(135deg, #a9c3a6 0%, #8fb58b 100%);
+  border-radius: 50%;
+  opacity: 0.1;
+  z-index: 1;
 }
 
-.empty-subtitle {
-  font-size: 14px;
-  color: var(--text-primary);
-  opacity: 0.7;
+.empty-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: #4a593d;
+  margin: 0 0 12px 0;
 }
 
-/* 服务器卡片网格 */
+.empty-description {
+  font-size: 16px;
+  color: #6e8b67;
+  margin: 0 0 32px 0;
+  opacity: 0.8;
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.5;
+}
+
+/* 服务器网格 */
 .server-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 24px;
+  padding: 32px;
 }
 
+/* 服务器卡片 */
 .server-card {
-  position: relative;
-  background-color: var(--bg-color);
-  border: 1px solid var(--border-color);
+  background: #fffcf6;
+  border: 1px solid #e4ddd3;
   border-radius: 15px;
-  padding: 20px;
-  transition: all 0.3s ease;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
 .server-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  border-color: #d4c7b8;
 }
 
-/* 状态指示器 */
-.status-indicator {
-  position: absolute;
-  top: 16px;
-  right: 16px;
+.server-card.server-connected {
+  border-color: #a9c3a6;
+  box-shadow: 0 2px 12px rgba(169, 195, 166, 0.2);
+}
+
+.server-card.server-connected:hover {
+  box-shadow: 0 8px 32px rgba(169, 195, 166, 0.3);
+}
+
+/* 卡片头部 */
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid #f0ede6;
+}
+
+.server-title {
+  flex: 1;
+}
+
+.server-name {
+  font-size: 20px;
+  font-weight: 600;
+  color: #4a593d;
+  margin: 0 0 8px 0;
+  line-height: 1.2;
+}
+
+.server-address {
+  font-size: 14px;
+  color: #6e8b67;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  background: #f8f6f0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+/* 状态徽章 */
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid;
+}
+
+.status-badge.status-connected {
+  background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+  color: #155724;
+  border-color: #c3e6cb;
+}
+
+.status-badge.status-connecting {
+  background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+  color: #856404;
+  border-color: #ffeaa7;
+}
+
+.status-badge.status-disconnected {
+  background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+  color: #721c24;
+  border-color: #f5c6cb;
 }
 
 .status-dot {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background-color: #ccc;
-  transition: all 0.3s ease;
+  animation: pulse 2s infinite;
 }
 
-.status-dot.status-connected {
-  background-color: #52c41a;
-  box-shadow: 0 0 8px rgba(82, 196, 26, 0.4);
+.status-connected .status-dot {
+  background: #28a745;
 }
 
-.status-dot.status-connecting {
-  background-color: #faad14;
-  animation: pulse 1.5s infinite;
+.status-connecting .status-dot {
+  background: #ffc107;
 }
 
-.status-dot.status-disconnected {
-  background-color: #d9d9d9;
+.status-disconnected .status-dot {
+  background: #dc3545;
 }
 
 @keyframes pulse {
@@ -703,261 +879,359 @@ onUnmounted(() => {
   100% { opacity: 1; }
 }
 
-/* 服务器信息 */
-.server-info {
-  margin-right: 60px;
-  margin-bottom: 16px;
+/* 卡片内容 */
+.card-content {
+  padding: 0 24px 16px;
 }
 
-.server-name {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-title);
-  margin: 0 0 4px 0;
-}
-
-.server-address {
-  font-size: 14px;
-  color: var(--text-primary);
-  margin: 0 0 8px 0;
-  font-family: 'Courier New', monospace;
-}
-
-.server-status {
-  font-size: 13px;
-  color: var(--text-primary);
-  opacity: 0.8;
-  margin: 0;
-}
-
-.connection-count {
-  color: var(--button-bg);
-  font-weight: 500;
-}
-
-/* 控制按钮 */
-.server-controls {
+.server-metrics {
   display: flex;
-  gap: 8px;
+  gap: 16px;
 }
 
-.btn-toggle {
+.metric-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8f6f0;
+  padding: 12px 16px;
+  border-radius: 12px;
   flex: 1;
-  padding: 8px 16px;
+}
+
+.metric-icon {
+  font-size: 16px;
+}
+
+.metric-label {
+  font-size: 12px;
+  color: #6e8b67;
+  flex: 1;
+}
+
+.metric-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #4a593d;
+}
+
+/* 卡片操作 */
+.card-actions {
+  display: flex;
+  gap: 12px;
+  padding: 16px 24px 24px;
+}
+
+.btn-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 12px 16px;
   border: none;
-  border-radius: 15px;
-  font-size: 13px;
+  border-radius: 30px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
+  justify-content: center;
 }
 
-.btn-start {
-  background-color: var(--button-bg);
+.btn-action.btn-start {
+  background: linear-gradient(135deg, #a9c3a6 0%, #8fb58b 100%);
   color: white;
+  box-shadow: 0 2px 8px rgba(169, 195, 166, 0.3);
 }
 
-.btn-start:hover {
-  background-color: var(--button-hover);
+.btn-action.btn-start:hover {
+  background: linear-gradient(135deg, #8fb58b 0%, #7a9e76 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(169, 195, 166, 0.4);
 }
 
-.btn-stop {
-  background-color: #ff7875;
-  color: white;
+.btn-action.btn-stop {
+  background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+  color: #721c24;
+  border: 1px solid #f5c6cb;
 }
 
-.btn-stop:hover {
-  background-color: #ff4d4f;
+.btn-action.btn-stop:hover {
+  background: linear-gradient(135deg, #f5c6cb 0%, #f1b0b7 100%);
+  transform: translateY(-1px);
 }
 
-.btn-toggle:disabled {
+.btn-action:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none !important;
 }
 
-.btn-remove {
-  padding: 8px 12px;
-  border: none;
-  border-radius: 15px;
-  background-color: transparent;
-  color: var(--text-primary);
+.btn-danger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  background: #f8f6f0;
+  color: #dc3545;
+  border: 1px solid #e4ddd3;
+  border-radius: 50%;
   cursor: pointer;
   transition: all 0.3s ease;
-  opacity: 0.6;
 }
 
-.btn-remove:hover {
-  background-color: #ff7875;
-  color: white;
-  opacity: 1;
+.btn-danger:hover {
+  background: #f8d7da;
+  border-color: #f5c6cb;
+  transform: translateY(-1px);
 }
 
 /* 弹窗样式 */
-.dialog-overlay {
+.modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background: rgba(74, 89, 61, 0.6);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  backdrop-filter: blur(4px);
+  animation: fadeIn 0.3s ease;
 }
 
-.dialog-content {
-  background-color: var(--card-bg);
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-container {
+  background: #fffcf6;
   border-radius: 15px;
-  padding: 0;
-  max-width: 600px;
+  border: 1px solid #e4ddd3;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
   width: 90%;
+  max-width: 600px;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--border-color);
-  animation: dialogShow 0.3s ease-out;
+  animation: slideUp 0.3s ease;
 }
 
-@keyframes dialogShow {
+@keyframes slideUp {
   from {
     opacity: 0;
-    transform: scale(0.9) translateY(-20px);
+    transform: translateY(20px) scale(0.95);
   }
   to {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
-.dialog-header {
+.modal-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 24px 32px;
-  border-bottom: 1px solid var(--border-color);
-  background: linear-gradient(135deg, var(--card-bg) 0%, #f8f6f0 100%);
-  border-radius: 15px 15px 0 0;
+  align-items: flex-start;
+  padding: 32px 32px 24px;
+  border-bottom: 1px solid #f0ede6;
 }
 
-.dialog-title {
-  font-size: 20px;
-  font-weight: 600;
-  color: var(--text-title);
+.modal-title-section {
+  flex: 1;
+}
+
+.modal-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #4a593d;
+  margin: 0 0 8px 0;
+  line-height: 1.2;
+}
+
+.modal-subtitle {
+  font-size: 16px;
+  color: #6e8b67;
   margin: 0;
+  opacity: 0.8;
 }
 
 .btn-close {
-  background: none;
-  border: none;
-  font-size: 20px;
-  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: #f8f6f0;
+  border: 1px solid #e4ddd3;
+  border-radius: 50%;
   cursor: pointer;
-  padding: 8px;
-  border-radius: 15px;
   transition: all 0.3s ease;
-  opacity: 0.6;
+  color: #6e8b67;
 }
 
 .btn-close:hover {
-  background-color: rgba(169, 195, 166, 0.1);
-  opacity: 1;
+  background: #f0ede6;
+  border-color: #d4c7b8;
+  transform: scale(1.05);
 }
 
-.error-message {
-  background-color: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 12px;
-  padding: 16px 20px;
-  margin: 20px 32px 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  animation: errorShow 0.3s ease-out;
-}
-
-@keyframes errorShow {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.error-icon {
+.close-icon {
   font-size: 18px;
-  flex-shrink: 0;
+  font-weight: 600;
 }
 
-.error-text {
-  color: #dc2626;
+/* 警告样式 */
+.alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  margin: 0 32px 24px;
+}
+
+.alert-error {
+  background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+  border: 1px solid #f5c6cb;
+}
+
+.alert-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.alert-content {
+  flex: 1;
+}
+
+.alert-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #721c24;
+  margin: 0 0 4px 0;
+}
+
+.alert-message {
+  font-size: 13px;
+  color: #721c24;
+  margin: 0;
+  opacity: 0.9;
+}
+
+/* 表单样式 */
+.modal-form {
+  padding: 0 32px 32px;
+}
+
+.form-section {
+  margin-bottom: 32px;
+}
+
+.form-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #4a593d;
+  margin: 0 0 16px 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-label {
   font-size: 14px;
   font-weight: 500;
-  line-height: 1.4;
+  color: #4a593d;
 }
 
-.dialog-form {
-  padding: 32px;
-}
-
-.dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-  margin-top: 24px;
-}
-
-.btn-cancel {
-  background-color: transparent;
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  padding: 12px 24px;
+.field-input {
+  padding: 14px 16px;
+  border: 1px solid #e4ddd3;
   border-radius: 15px;
   font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
+  background: #fffcf6;
+  color: #4a593d;
   transition: all 0.3s ease;
 }
 
-.btn-cancel:hover {
-  background-color: var(--border-color);
-  transform: translateY(-1px);
+.field-input:focus {
+  outline: none;
+  border-color: #a9c3a6;
+  box-shadow: 0 0 0 3px rgba(169, 195, 166, 0.1);
 }
 
+.field-hint {
+  font-size: 12px;
+  color: #6e8b67;
+  opacity: 0.8;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: flex-end;
+  padding: 24px 32px 32px;
+  border-top: 1px solid #f0ede6;
+}
+
+/* 响应式设计 */
 @media (max-width: 768px) {
-  .form-row {
-    grid-template-columns: 1fr;
+  .server-list-page {
+    padding: 16px;
   }
-  
+
+  .page-header {
+    padding: 24px;
+  }
+
+  .header-content {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .header-stats {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   .server-grid {
     grid-template-columns: 1fr;
+    padding: 20px;
   }
-  
-  .dialog-content {
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-container {
     width: 95%;
     margin: 20px;
   }
-  
-  .dialog-header {
-    padding: 20px 24px;
+
+  .modal-header,
+  .modal-form,
+  .modal-actions {
+    padding-left: 20px;
+    padding-right: 20px;
   }
-  
-  .dialog-form {
-    padding: 24px;
-  }
-  
-  .dialog-actions {
+
+  .modal-actions {
     flex-direction: column-reverse;
-    gap: 8px;
-  }
-  
-  .btn-cancel,
-  .btn-primary {
-    width: 100%;
   }
 }
 </style> 
