@@ -1,6 +1,7 @@
 mod onebot;
 mod websocket_server;
 mod config;
+mod plugins;
 
 use std::sync::Arc;
 use std::collections::{VecDeque, HashMap};
@@ -48,6 +49,11 @@ const CACHE_DURATION: i64 = 300; // 5分钟
 // API 响应等待映射
 static API_RESPONSE_MAP: Lazy<Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<OneBotApiResponse>>>>> = Lazy::new(|| {
     Arc::new(Mutex::new(HashMap::new()))
+});
+
+// 插件系统全局状态
+static PLUGIN_SYSTEM: Lazy<Arc<Mutex<Option<Arc<plugins::PluginSystem>>>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(None))
 });
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -799,6 +805,126 @@ async fn get_app_version() -> Result<String, String> {
     Ok(env!("CARGO_PKG_VERSION").to_string())
 }
 
+/// 初始化插件系统
+#[tauri::command]
+async fn init_plugin_system() -> Result<String, String> {
+    // 创建OneBot API实例
+    let onebot_api = Arc::new(plugins::api::OneBotApi::new("http://localhost:3000".to_string()));
+
+    // 初始化插件系统
+    let plugin_system = plugins::init_plugin_system(onebot_api).await
+        .map_err(|e| format!("初始化插件系统失败: {}", e))?;
+
+    // 保存到全局状态
+    {
+        let mut system_guard = PLUGIN_SYSTEM.lock().await;
+        *system_guard = Some(plugin_system);
+    }
+
+    Ok("插件系统初始化成功".to_string())
+}
+
+/// 获取所有插件
+#[tauri::command]
+async fn get_all_plugins() -> Result<Vec<plugins::PluginMetadata>, String> {
+    let system_guard = PLUGIN_SYSTEM.lock().await;
+    if let Some(ref system) = *system_guard {
+        let manager = system.manager.read().await;
+        Ok(manager.get_all_plugins())
+    } else {
+        Err("插件系统未初始化".to_string())
+    }
+}
+
+/// 启用插件
+#[tauri::command]
+async fn enable_plugin(plugin_id: String) -> Result<(), String> {
+    let system_guard = PLUGIN_SYSTEM.lock().await;
+    if let Some(ref system) = *system_guard {
+        let mut manager = system.manager.write().await;
+        let uuid = uuid::Uuid::parse_str(&plugin_id)
+            .map_err(|e| format!("无效的插件ID: {}", e))?;
+        manager.enable_plugin(&uuid).await
+            .map_err(|e| format!("启用插件失败: {}", e))
+    } else {
+        Err("插件系统未初始化".to_string())
+    }
+}
+
+/// 禁用插件
+#[tauri::command]
+async fn disable_plugin(plugin_id: String) -> Result<(), String> {
+    let system_guard = PLUGIN_SYSTEM.lock().await;
+    if let Some(ref system) = *system_guard {
+        let mut manager = system.manager.write().await;
+        let uuid = uuid::Uuid::parse_str(&plugin_id)
+            .map_err(|e| format!("无效的插件ID: {}", e))?;
+        manager.disable_plugin(&uuid).await
+            .map_err(|e| format!("禁用插件失败: {}", e))
+    } else {
+        Err("插件系统未初始化".to_string())
+    }
+}
+
+/// 卸载插件
+#[tauri::command]
+async fn unload_plugin(plugin_id: String) -> Result<(), String> {
+    let system_guard = PLUGIN_SYSTEM.lock().await;
+    if let Some(ref system) = *system_guard {
+        let mut manager = system.manager.write().await;
+        let uuid = uuid::Uuid::parse_str(&plugin_id)
+            .map_err(|e| format!("无效的插件ID: {}", e))?;
+        manager.unload_plugin(&uuid).await
+            .map_err(|e| format!("卸载插件失败: {}", e))
+    } else {
+        Err("插件系统未初始化".to_string())
+    }
+}
+
+/// 获取插件统计信息
+#[tauri::command]
+async fn get_plugin_stats(plugin_id: String) -> Result<plugins::PluginStats, String> {
+    let system_guard = PLUGIN_SYSTEM.lock().await;
+    if let Some(ref system) = *system_guard {
+        let manager = system.manager.read().await;
+        let uuid = uuid::Uuid::parse_str(&plugin_id)
+            .map_err(|e| format!("无效的插件ID: {}", e))?;
+        manager.get_plugin_stats(&uuid)
+            .cloned()
+            .ok_or_else(|| "插件不存在".to_string())
+    } else {
+        Err("插件系统未初始化".to_string())
+    }
+}
+
+/// 获取插件配置
+#[tauri::command]
+async fn get_plugin_config(plugin_name: String) -> Result<plugins::config::PluginConfig, String> {
+    plugins::config::PluginConfig::load_for_plugin(&plugin_name).await
+        .map_err(|e| format!("获取插件配置失败: {}", e))
+}
+
+/// 更新插件配置
+#[tauri::command]
+async fn update_plugin_config(config: plugins::config::PluginConfig) -> Result<(), String> {
+    config.save().await
+        .map_err(|e| format!("保存插件配置失败: {}", e))
+}
+
+/// 获取全局插件配置
+#[tauri::command]
+async fn get_global_plugin_config() -> Result<plugins::config::GlobalPluginConfig, String> {
+    plugins::config::GlobalPluginConfig::load_or_default().await
+        .map_err(|e| format!("获取全局插件配置失败: {}", e))
+}
+
+/// 更新全局插件配置
+#[tauri::command]
+async fn update_global_plugin_config(config: plugins::config::GlobalPluginConfig) -> Result<(), String> {
+    config.save().await
+        .map_err(|e| format!("保存全局插件配置失败: {}", e))
+}
+
 /// 服务器状态信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerStatusInfo {
@@ -875,7 +1001,17 @@ pub fn run() {
             send_group_message,
             get_user_avatar,
             get_group_avatar,
-            get_app_version
+            get_app_version,
+            init_plugin_system,
+            get_all_plugins,
+            enable_plugin,
+            disable_plugin,
+            unload_plugin,
+            get_plugin_stats,
+            get_plugin_config,
+            update_plugin_config,
+            get_global_plugin_config,
+            update_global_plugin_config
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

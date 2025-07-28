@@ -1,0 +1,16 @@
+[info]
+name = "example_plugin"
+version = "1.0.0"
+author = "LinBot2 Team"
+description = "示例插件，展示插件系统的基本功能"
+homepage = "https://github.com/linjianyan0229/linbot2"
+api_version = "1.0.0"
+tags = ["example", "demo"]
+
+plugin_type = "javascript"
+entry_point = "index.js"
+
+[dependencies]
+
+[environment]
+NODE_ENV = "production"
